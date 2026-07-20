@@ -4,7 +4,7 @@ import { ValidatorService } from '../src/services/validator.service';
 
 // Mock the `@neondatabase/serverless` module to prevent network calls
 vi.mock('@neondatabase/serverless', () => {
-  const mockQueryFn = vi.fn().mockImplementation(async (sql: string) => {
+  const mockQueryFn = vi.fn().mockImplementation(async (sql: string, params?: any[]) => {
     if (sql.toUpperCase().includes('SELECT')) {
       return {
         rows: [{ id: 100, name: 'Alice', role: 'admin' }],
@@ -18,8 +18,20 @@ vi.mock('@neondatabase/serverless', () => {
     };
   });
 
+  const mockConnectFn = vi.fn().mockImplementation(async () => {
+    return {
+      query: mockQueryFn,
+      release: vi.fn(),
+    };
+  });
+
   return {
-    neon: vi.fn().mockImplementation(() => mockQueryFn)
+    Pool: vi.fn().mockImplementation(() => {
+      return {
+        query: mockQueryFn,
+        connect: mockConnectFn,
+      };
+    })
   };
 });
 

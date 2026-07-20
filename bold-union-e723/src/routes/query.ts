@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { Env, SQLRequest } from '../models/types';
 import { ValidatorService } from '../services/validator.service';
-import { DatabaseService } from '../services/database.service';
+import { DatabaseService, DatabaseError } from '../services/database.service';
 import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
 
@@ -54,10 +54,16 @@ queryRouter.post('/', async (c) => {
     const executionTimeMs = parseFloat((performance.now() - startTime).toFixed(2));
     console.error(`[FAILURE] POST /query - Execution time: ${executionTimeMs}ms - Error:`, error);
 
+    const isDbError = error instanceof DatabaseError;
+    const statusCode = isDbError ? 400 : 500;
+    const clientMessage = isDbError
+      ? 'Database operation failed'
+      : 'Internal Server Error or Database failure during execution';
+
     return sendError(
       c,
-      500,
-      'Internal Server Error or Database failure during execution',
+      statusCode,
+      clientMessage,
       error.message || String(error)
     );
   }

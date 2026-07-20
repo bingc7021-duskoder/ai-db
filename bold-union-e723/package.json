@@ -6,7 +6,7 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "test": "vitest",
+    "test": "NODE_OPTIONS=\"--require ./polyfill-crypto.js\" vitest",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {
