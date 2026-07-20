@@ -34,6 +34,7 @@ app.get('/', (c) => {
     message: 'AI Database Platform Backend running successfully.',
     endpoints: {
       adminCreateSchema: 'POST /admin/create-schema',
+      adminInsertData: 'POST /admin/insert-data',
       userQuery: 'POST /query'
     }
   });

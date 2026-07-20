@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { Env, SQLRequest } from '../models/types';
-import { ValidatorService } from '../services/validator.service';
+import { UserQueryValidator } from '../services/validator.service';
 import { DatabaseService, DatabaseError } from '../services/database.service';
 import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
@@ -27,7 +27,7 @@ queryRouter.post('/', async (c) => {
     console.log(`[LOG] SQL received for user query validation:\n${sqlQuery}`);
 
     // Validate SELECT-only query SQL
-    const validation = ValidatorService.validateUserSQL(sqlQuery);
+    const validation = UserQueryValidator.validate(sqlQuery);
     if (!validation.isValid) {
       console.warn(`[VALIDATION ERROR] POST /query - Blocked SQL: ${validation.reason}`);
       return sendError(c, 400, 'Invalid SQL: Command rejected by validator rules', validation.reason);

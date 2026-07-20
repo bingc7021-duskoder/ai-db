@@ -154,96 +154,15 @@ export function splitStatements(tokens: Token[]): Token[][] {
   return statements;
 }
 
-export class ValidatorService {
-  /**
-   * Validates SQL statement(s) for the User Query endpoint.
-   * Rules:
-   * - Must ONLY contain SELECT or WITH statements.
-   * - Prohibits INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, etc.
-   */
-  public static validateUserSQL(sql: string): SQLValidationResult {
-    if (!sql || sql.trim().length === 0) {
-      return { isValid: false, reason: 'SQL input cannot be empty' };
-    }
-
-    try {
-      const tokens = tokenizeSQL(sql);
-      const statements = splitStatements(tokens);
-
-      if (statements.length === 0) {
-        return { isValid: false, reason: 'No valid SQL statements found' };
-      }
-
-      // Forbidden keywords for user queries
-      const forbiddenKeywords = new Set([
-        'INSERT',
-        'UPDATE',
-        'DELETE',
-        'DROP',
-        'ALTER',
-        'TRUNCATE',
-        'CREATE',
-        'REPLACE',
-        'RENAME',
-        'GRANT',
-        'REVOKE',
-        'INTO',
-        'COPY',
-        'MERGE'
-      ]);
-
-      for (let i = 0; i < statements.length; i++) {
-        const stmt = statements[i];
-        if (stmt.length === 0) continue;
-
-        // Check first token of statement
-        const firstToken = stmt[0];
-        if (firstToken.type !== 'keyword') {
-          return {
-            isValid: false,
-            reason: `Statement #${i + 1} must begin with an allowed SQL keyword (SELECT or WITH)`
-          };
-        }
-
-        const firstKeyword = firstToken.value.toUpperCase();
-        if (firstKeyword !== 'SELECT' && firstKeyword !== 'WITH') {
-          return {
-            isValid: false,
-            reason: `Forbidden operation in statement #${i + 1}: '${firstKeyword}'. Only SELECT queries are allowed.`
-          };
-        }
-
-        // Scan all keywords in this statement to block forbidden ones
-        for (const token of stmt) {
-          if (token.type === 'keyword') {
-            const kw = token.value.toUpperCase();
-            if (forbiddenKeywords.has(kw)) {
-              return {
-                isValid: false,
-                reason: `Forbidden keyword '${kw}' detected in statement #${i + 1}`
-              };
-            }
-          }
-        }
-      }
-
-      return { isValid: true };
-    } catch (error: any) {
-      return {
-        isValid: false,
-        reason: `SQL parsing error: ${error.message || error}`
-      };
-    }
-  }
-
+export class SchemaSQLValidator {
   /**
    * Validates SQL statement(s) for the Admin Schema endpoint.
    * Rules:
-   * - Must begin with CREATE, ALTER.
+   * - Must begin with CREATE or ALTER.
    * - Only allows creating/altering: TABLE, INDEX, SEQUENCE, VIEW.
-   * - Strictly blocks drop/delete/update/insert/grant/revoke commands.
+   * - Strictly blocks drop/delete/update/insert/grant/revoke/truncate/copy/merge commands.
    */
-  public static validateAdminSQL(sql: string): SQLValidationResult {
+  public static validate(sql: string): SQLValidationResult {
     if (!sql || sql.trim().length === 0) {
       return { isValid: false, reason: 'SQL input cannot be empty' };
     }
@@ -268,7 +187,8 @@ export class ValidatorService {
         'INSERT',
         'GRANT',
         'REVOKE',
-        'COPY'
+        'COPY',
+        'MERGE'
       ]);
 
       for (let i = 0; i < statements.length; i++) {
@@ -358,5 +278,180 @@ export class ValidatorService {
         reason: `SQL parsing error: ${error.message || error}`
       };
     }
+  }
+}
+
+export class DataSQLValidator {
+  /**
+   * Validates SQL statement(s) for the Admin Data Initialization endpoint.
+   * Rules:
+   * - Must begin with INSERT, UPDATE, or DELETE.
+   * - Strictly blocks schema changes (CREATE, ALTER, DROP, TRUNCATE) and administrative controls (GRANT, REVOKE).
+   */
+  public static validate(sql: string): SQLValidationResult {
+    if (!sql || sql.trim().length === 0) {
+      return { isValid: false, reason: 'SQL input cannot be empty' };
+    }
+
+    try {
+      const tokens = tokenizeSQL(sql);
+      const statements = splitStatements(tokens);
+
+      if (statements.length === 0) {
+        return { isValid: false, reason: 'No valid SQL statements found' };
+      }
+
+      const allowedFirstKeywords = new Set(['INSERT', 'UPDATE', 'DELETE']);
+      const forbiddenKeywords = new Set([
+        'CREATE',
+        'ALTER',
+        'DROP',
+        'TRUNCATE',
+        'GRANT',
+        'REVOKE',
+        'COPY',
+        'MERGE',
+        'REPLACE',
+        'RENAME'
+      ]);
+
+      for (let i = 0; i < statements.length; i++) {
+        const stmt = statements[i];
+        if (stmt.length === 0) continue;
+
+        // Check first keyword
+        const firstToken = stmt[0];
+        if (firstToken.type !== 'keyword') {
+          return {
+            isValid: false,
+            reason: `Statement #${i + 1} must begin with an allowed SQL keyword (INSERT, UPDATE, or DELETE)`
+          };
+        }
+
+        const firstKeyword = firstToken.value.toUpperCase();
+        if (!allowedFirstKeywords.has(firstKeyword)) {
+          return {
+            isValid: false,
+            reason: `Forbidden operation in statement #${i + 1}: '${firstKeyword}'. Only INSERT, UPDATE, and DELETE statements are allowed.`
+          };
+        }
+
+        // Scan all keywords in this statement to block forbidden ones
+        for (const token of stmt) {
+          if (token.type === 'keyword') {
+            const kw = token.value.toUpperCase();
+            if (forbiddenKeywords.has(kw)) {
+              return {
+                isValid: false,
+                reason: `Forbidden keyword '${kw}' detected in statement #${i + 1}`
+              };
+            }
+          }
+        }
+      }
+
+      return { isValid: true };
+    } catch (error: any) {
+      return {
+        isValid: false,
+        reason: `SQL parsing error: ${error.message || error}`
+      };
+    }
+  }
+}
+
+export class UserQueryValidator {
+  /**
+   * Validates SQL statement(s) for the User Query endpoint.
+   * Rules:
+   * - Must ONLY contain SELECT or WITH statements.
+   * - Prohibits INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, etc.
+   */
+  public static validate(sql: string): SQLValidationResult {
+    if (!sql || sql.trim().length === 0) {
+      return { isValid: false, reason: 'SQL input cannot be empty' };
+    }
+
+    try {
+      const tokens = tokenizeSQL(sql);
+      const statements = splitStatements(tokens);
+
+      if (statements.length === 0) {
+        return { isValid: false, reason: 'No valid SQL statements found' };
+      }
+
+      // Forbidden keywords for user queries
+      const forbiddenKeywords = new Set([
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'DROP',
+        'ALTER',
+        'TRUNCATE',
+        'CREATE',
+        'REPLACE',
+        'RENAME',
+        'GRANT',
+        'REVOKE',
+        'INTO',
+        'COPY',
+        'MERGE'
+      ]);
+
+      for (let i = 0; i < statements.length; i++) {
+        const stmt = statements[i];
+        if (stmt.length === 0) continue;
+
+        // Check first token of statement
+        const firstToken = stmt[0];
+        if (firstToken.type !== 'keyword') {
+          return {
+            isValid: false,
+            reason: `Statement #${i + 1} must begin with an allowed SQL keyword (SELECT or WITH)`
+          };
+        }
+
+        const firstKeyword = firstToken.value.toUpperCase();
+        if (firstKeyword !== 'SELECT' && firstKeyword !== 'WITH') {
+          return {
+            isValid: false,
+            reason: `Forbidden operation in statement #${i + 1}: '${firstKeyword}'. Only SELECT queries are allowed.`
+          };
+        }
+
+        // Scan all keywords in this statement to block forbidden ones
+        for (const token of stmt) {
+          if (token.type === 'keyword') {
+            const kw = token.value.toUpperCase();
+            if (forbiddenKeywords.has(kw)) {
+              return {
+                isValid: false,
+                reason: `Forbidden keyword '${kw}' detected in statement #${i + 1}`
+              };
+            }
+          }
+        }
+      }
+
+      return { isValid: true };
+    } catch (error: any) {
+      return {
+        isValid: false,
+        reason: `SQL parsing error: ${error.message || error}`
+      };
+    }
+  }
+}
+
+/**
+ * @deprecated Use SchemaSQLValidator, DataSQLValidator, or UserQueryValidator directly.
+ */
+export class ValidatorService {
+  public static validateUserSQL(sql: string): SQLValidationResult {
+    return UserQueryValidator.validate(sql);
+  }
+
+  public static validateAdminSQL(sql: string): SQLValidationResult {
+    return SchemaSQLValidator.validate(sql);
   }
 }

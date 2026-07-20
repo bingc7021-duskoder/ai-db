@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import app from '../src/index';
-import { ValidatorService } from '../src/services/validator.service';
+import { SchemaSQLValidator, DataSQLValidator, UserQueryValidator } from '../src/services/validator.service';
 
 // Mock the `@neondatabase/serverless` module to prevent network calls
 vi.mock('@neondatabase/serverless', () => {
@@ -11,7 +11,7 @@ vi.mock('@neondatabase/serverless', () => {
         rowCount: 1
       };
     }
-    // Return empty results for CREATE/ALTER DDL commands
+    // Return empty results for CREATE/ALTER/INSERT DDL/DML commands
     return {
       rows: [],
       rowCount: 0
@@ -36,81 +36,105 @@ vi.mock('@neondatabase/serverless', () => {
 });
 
 describe('SQL Validator Service Unit Tests', () => {
-  describe('User SQL Validator (validateUserSQL)', () => {
+  describe('User SQL Validator (UserQueryValidator)', () => {
     it('should allow simple SELECT queries', () => {
-      const res = ValidatorService.validateUserSQL('SELECT * FROM users;');
+      const res = UserQueryValidator.validate('SELECT * FROM users;');
       expect(res.isValid).toBe(true);
     });
 
     it('should allow SELECT queries with comments', () => {
-      const res = ValidatorService.validateUserSQL('SELECT id FROM customers; -- fetch only ids');
+      const res = UserQueryValidator.validate('SELECT id FROM customers; -- fetch only ids');
       expect(res.isValid).toBe(true);
     });
 
     it('should allow SELECT queries with CTEs', () => {
-      const res = ValidatorService.validateUserSQL('WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users;');
+      const res = UserQueryValidator.validate('WITH active_users AS (SELECT * FROM users WHERE active = true) SELECT * FROM active_users;');
       expect(res.isValid).toBe(true);
     });
 
     it('should reject INSERT queries', () => {
-      const res = ValidatorService.validateUserSQL("INSERT INTO users (name) VALUES ('Bob');");
+      const res = UserQueryValidator.validate("INSERT INTO users (name) VALUES ('Bob');");
       expect(res.isValid).toBe(false);
       expect(res.reason).toContain('Forbidden operation');
     });
 
     it('should reject UPDATE queries', () => {
-      const res = ValidatorService.validateUserSQL("UPDATE users SET name = 'Bob' WHERE id = 1;");
+      const res = UserQueryValidator.validate("UPDATE users SET name = 'Bob' WHERE id = 1;");
       expect(res.isValid).toBe(false);
       expect(res.reason).toContain('Forbidden operation');
     });
 
     it('should reject DELETE queries', () => {
-      const res = ValidatorService.validateUserSQL('DELETE FROM users WHERE id = 1;');
+      const res = UserQueryValidator.validate('DELETE FROM users WHERE id = 1;');
       expect(res.isValid).toBe(false);
       expect(res.reason).toContain('Forbidden operation');
     });
 
     it('should reject nested modifications or combined queries', () => {
-      const res1 = ValidatorService.validateUserSQL('SELECT * FROM users; DROP TABLE users;');
+      const res1 = UserQueryValidator.validate('SELECT * FROM users; DROP TABLE users;');
       expect(res1.isValid).toBe(false);
 
-      const res2 = ValidatorService.validateUserSQL('SELECT * FROM users; INSERT INTO logs DEFAULT VALUES;');
+      const res2 = UserQueryValidator.validate('SELECT * FROM users; INSERT INTO logs DEFAULT VALUES;');
       expect(res2.isValid).toBe(false);
     });
 
     it('should handle SQL keywords inside string literals safely without blocking', () => {
-      const res = ValidatorService.validateUserSQL("SELECT * FROM messages WHERE content = 'Please delete this account';");
+      const res = UserQueryValidator.validate("SELECT * FROM messages WHERE content = 'Please delete this account';");
       expect(res.isValid).toBe(true);
     });
   });
 
-  describe('Admin SQL Validator (validateAdminSQL)', () => {
+  describe('Schema SQL Validator (SchemaSQLValidator)', () => {
     it('should allow valid CREATE TABLE statements', () => {
-      const res = ValidatorService.validateAdminSQL('CREATE TABLE products (id INT, price NUMERIC);');
+      const res = SchemaSQLValidator.validate('CREATE TABLE products (id INT, price NUMERIC);');
       expect(res.isValid).toBe(true);
     });
 
     it('should allow ALTER TABLE statements', () => {
-      const res = ValidatorService.validateAdminSQL('ALTER TABLE products ADD COLUMN description TEXT;');
+      const res = SchemaSQLValidator.validate('ALTER TABLE products ADD COLUMN description TEXT;');
       expect(res.isValid).toBe(true);
     });
 
     it('should allow CREATE INDEX/SEQUENCE/VIEW', () => {
-      expect(ValidatorService.validateAdminSQL('CREATE INDEX idx_prod_price ON products(price);').isValid).toBe(true);
-      expect(ValidatorService.validateAdminSQL('CREATE SEQUENCE seq_user_id START 100;').isValid).toBe(true);
-      expect(ValidatorService.validateAdminSQL('CREATE VIEW active_products AS SELECT * FROM products;').isValid).toBe(true);
-      expect(ValidatorService.validateAdminSQL('CREATE OR REPLACE VIEW active_products AS SELECT * FROM products;').isValid).toBe(true);
+      expect(SchemaSQLValidator.validate('CREATE INDEX idx_prod_price ON products(price);').isValid).toBe(true);
+      expect(SchemaSQLValidator.validate('CREATE SEQUENCE seq_user_id START 100;').isValid).toBe(true);
+      expect(SchemaSQLValidator.validate('CREATE VIEW active_products AS SELECT * FROM products;').isValid).toBe(true);
+      expect(SchemaSQLValidator.validate('CREATE OR REPLACE VIEW active_products AS SELECT * FROM products;').isValid).toBe(true);
     });
 
     it('should reject DROP TABLE statements', () => {
-      const res = ValidatorService.validateAdminSQL('DROP TABLE products;');
+      const res = SchemaSQLValidator.validate('DROP TABLE products;');
       expect(res.isValid).toBe(false);
       expect(res.reason).toContain('Forbidden operation');
     });
 
     it('should reject non-DDL statements like INSERT/UPDATE/DELETE', () => {
-      expect(ValidatorService.validateAdminSQL("INSERT INTO products VALUES (1, 10);").isValid).toBe(false);
-      expect(ValidatorService.validateAdminSQL("UPDATE products SET price = 12;").isValid).toBe(false);
+      expect(SchemaSQLValidator.validate("INSERT INTO products VALUES (1, 10);").isValid).toBe(false);
+      expect(SchemaSQLValidator.validate("UPDATE products SET price = 12;").isValid).toBe(false);
+    });
+  });
+
+  describe('Data SQL Validator (DataSQLValidator)', () => {
+    it('should allow valid INSERT, UPDATE, DELETE statements', () => {
+      expect(DataSQLValidator.validate("INSERT INTO products (id, price) VALUES (1, 10);").isValid).toBe(true);
+      expect(DataSQLValidator.validate("UPDATE products SET price = 12 WHERE id = 1;").isValid).toBe(true);
+      expect(DataSQLValidator.validate("DELETE FROM products WHERE id = 1;").isValid).toBe(true);
+    });
+
+    it('should reject DDL statements like CREATE/ALTER/DROP/TRUNCATE', () => {
+      expect(DataSQLValidator.validate("CREATE TABLE temp (id INT);").isValid).toBe(false);
+      expect(DataSQLValidator.validate("ALTER TABLE products ADD COLUMN description TEXT;").isValid).toBe(false);
+      expect(DataSQLValidator.validate("DROP TABLE products;").isValid).toBe(false);
+      expect(DataSQLValidator.validate("TRUNCATE TABLE products;").isValid).toBe(false);
+    });
+
+    it('should reject administrative queries like GRANT/REVOKE', () => {
+      expect(DataSQLValidator.validate("GRANT ALL ON TABLE products TO web_user;").isValid).toBe(false);
+      expect(DataSQLValidator.validate("REVOKE ALL ON TABLE products FROM web_user;").isValid).toBe(false);
+    });
+
+    it('should reject SELECT-only queries', () => {
+      expect(DataSQLValidator.validate("SELECT * FROM products;").isValid).toBe(false);
     });
   });
 });
@@ -195,6 +219,38 @@ describe('Worker HTTP Routes Integration Tests', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: 'DROP TABLE logs;' })
+      },
+      mockEnv
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.success).toBe(false);
+    expect(body.message).toContain('Invalid SQL');
+  });
+
+  it('should run valid data commands via POST /admin/insert-data', async () => {
+    const res = await app.request(
+      '/admin/insert-data',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: "INSERT INTO logs (message) VALUES ('test message');" })
+      },
+      mockEnv
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.success).toBe(true);
+    expect(body.message).toContain('Data operation executed successfully');
+  });
+
+  it('should block DDL/CREATE statements via POST /admin/insert-data', async () => {
+    const res = await app.request(
+      '/admin/insert-data',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: 'CREATE TABLE illegal (id INT);' })
       },
       mockEnv
     );
