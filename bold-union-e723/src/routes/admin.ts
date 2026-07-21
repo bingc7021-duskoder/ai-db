@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env, SQLRequest } from '../models/types';
 import { SchemaSQLValidator, DataSQLValidator } from '../services/validator.service';
 import { DatabaseService, DatabaseError } from '../services/database.service';
+import { KnowledgeService } from '../services/KnowledgeService';
 import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
 import { PromptService, PromptType } from '../services/PromptService';
@@ -203,6 +204,14 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
       }
     } catch (diagErr: any) {
       console.error(`[Diagram Cache Error] Failed to generate or save diagram metadata:`, diagErr);
+    }
+
+    // Trigger Knowledge Center documentation and artifacts generation
+    try {
+      console.log(`[LOG] Schema creation successful. Triggering Knowledge Center documentation pipeline...`);
+      await KnowledgeService.generateAllKnowledge(dbService, config.geminiApiKey || '');
+    } catch (knowErr: any) {
+      console.error(`[Knowledge Generation Error] Failed to generate database documentation artifacts:`, knowErr);
     }
 
     const executionTimeMs = parseFloat((performance.now() - startTime).toFixed(2));
