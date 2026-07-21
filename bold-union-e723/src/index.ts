@@ -52,6 +52,39 @@ app.get('/schema', requireAuth, async (c) => {
   }
 });
 
+// Schema diagram cache endpoint
+app.get('/schema/diagram', requireAuth, async (c) => {
+  try {
+    const config = getAppConfig(c.env);
+    const dbService = new DatabaseService(config.databaseUrl);
+    const cachedDiagram = await dbService.getCachedDiagramData();
+    if (!cachedDiagram) {
+      // If no cached diagram is found, return empty cached structure rather than failing
+      return c.json({
+        success: true,
+        message: 'No cached schema diagram found.',
+        generatedAt: null,
+        mermaid: '',
+        tables: [],
+        relationships: [],
+        layoutHints: {}
+      });
+    }
+    return c.json({
+      success: true,
+      message: 'Schema diagram retrieved successfully',
+      generatedAt: cachedDiagram.generatedAt,
+      mermaid: cachedDiagram.mermaid,
+      tables: cachedDiagram.tables,
+      relationships: cachedDiagram.relationships,
+      layoutHints: cachedDiagram.layoutHints
+    });
+  } catch (err: any) {
+    console.error('[Schema Diagram Route Error]', err);
+    return sendError(c, 500, 'Failed to retrieve database schema diagram', err.message);
+  }
+});
+
 // Health check endpoint
 app.get('/', (c) => {
   return c.json({

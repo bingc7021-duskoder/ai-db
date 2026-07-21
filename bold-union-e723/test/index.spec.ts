@@ -108,6 +108,20 @@ vi.mock('@neondatabase/serverless', () => {
           };
         }
 
+        // Match select diagram cache
+        if (sqlUpper.includes('FROM APP_SCHEMA_DIAGRAM')) {
+          return {
+            rows: [{
+              generated_at: new Date().toISOString(),
+              mermaid: 'erDiagram',
+              tables: '[]',
+              relationships: '[]',
+              layout_hints: '{}'
+            }],
+            rowCount: 1
+          };
+        }
+
         // General default select response
         if (sqlUpper.includes('SELECT')) {
           return {
@@ -468,6 +482,35 @@ describe('Worker HTTP Routes Integration Tests', () => {
   it('should block GET /schema if unauthenticated', async () => {
     const res = await app.request(
       '/schema',
+      { method: 'GET' },
+      mockEnv
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('should retrieve cached diagram via GET /schema/diagram with USER token', async () => {
+    const res = await app.request(
+      '/schema/diagram',
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${userToken}`
+        }
+      },
+      mockEnv
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.success).toBe(true);
+    expect(body.mermaid).toBeDefined();
+    expect(body.tables).toBeDefined();
+    expect(body.relationships).toBeDefined();
+    expect(body.layoutHints).toBeDefined();
+  });
+
+  it('should block GET /schema/diagram if unauthenticated', async () => {
+    const res = await app.request(
+      '/schema/diagram',
       { method: 'GET' },
       mockEnv
     );

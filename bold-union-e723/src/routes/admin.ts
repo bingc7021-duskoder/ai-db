@@ -110,6 +110,87 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
     console.log(`[LOG] Executing admin SQL on Neon database...`);
     const dbResult = await dbService.execute(sqlQuery);
 
+    // Trigger Diagram Metadata generation and caching
+    try {
+      console.log(`[LOG] Schema execution successful. Generating diagram metadata...`);
+      const schemaSummary = await dbService.getSchemaSummary();
+      
+      let diagramGenerated = false;
+
+      if (config.geminiApiKey) {
+        try {
+          const promptService = new PromptService();
+          const geminiService = new GeminiService(config.geminiApiKey, promptService);
+          const geminiResponse = await geminiService.generate(
+            PromptType.DIAGRAM_GENERATION,
+            'Please generate the database ERD diagram JSON representation.',
+            schemaSummary
+          );
+
+          const parsed = JSON.parse(geminiResponse);
+          if (parsed && parsed.tables && parsed.relationships && parsed.layoutHints) {
+            await dbService.saveDiagramData(
+              parsed.mermaid || '',
+              parsed.tables,
+              parsed.relationships,
+              parsed.layoutHints
+            );
+            console.log(`[SUCCESS] Cached diagram metadata via Gemini.`);
+            diagramGenerated = true;
+          }
+        } catch (geminiErr) {
+          console.warn(`[Diagram Cache Warning] Gemini diagram generation failed, falling back to programmatic metadata:`, geminiErr);
+        }
+      }
+
+      if (!diagramGenerated) {
+        // Programmatic fallback
+        console.log(`[LOG] Executing programmatic fallback for diagram generation...`);
+        const structure = await dbService.getSchemaStructure();
+        
+        const tables = structure.tables.map((t: any) => ({
+          name: t.name,
+          label: t.name.charAt(0).toUpperCase() + t.name.slice(1) + ' Table',
+          columns: t.columns.map((c: any) => ({
+            name: c.name,
+            type: c.type,
+            isPrimaryKey: c.isPrimaryKey,
+            isForeignKey: c.isForeignKey
+          }))
+        }));
+
+        const relationships: any[] = [];
+        structure.tables.forEach((t: any) => {
+          t.columns.forEach((c: any) => {
+            if (c.isForeignKey && c.foreignKeyRef) {
+              relationships.push({
+                sourceTable: t.name,
+                sourceColumn: c.name,
+                targetTable: c.foreignKeyRef.table,
+                targetColumn: c.foreignKeyRef.column,
+                label: 'references'
+              });
+            }
+          });
+        });
+
+        const layoutHints: Record<string, { x: number; y: number }> = {};
+        tables.forEach((t: any, idx: number) => {
+          const col = idx % 3;
+          const row = Math.floor(idx / 3);
+          layoutHints[t.name] = { x: col * 380 + 50, y: row * 320 + 50 };
+        });
+
+        const relStrings = relationships.map(r => `  "${r.sourceTable}" }o--|| "${r.targetTable}" : "${r.label}"`);
+        const mermaid = `erDiagram\n` + relStrings.join('\n');
+
+        await dbService.saveDiagramData(mermaid, tables, relationships, layoutHints);
+        console.log(`[SUCCESS] Programmatic fallback diagram metadata cached successfully.`);
+      }
+    } catch (diagErr: any) {
+      console.error(`[Diagram Cache Error] Failed to generate or save diagram metadata:`, diagErr);
+    }
+
     const executionTimeMs = parseFloat((performance.now() - startTime).toFixed(2));
     console.log(`[SUCCESS] POST /admin/create-schema - Execution time: ${executionTimeMs}ms`);
 

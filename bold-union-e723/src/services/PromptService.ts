@@ -3,6 +3,7 @@ import queryGenerationPrompt from '../prompts/query_generation.md';
 import resultFormatterPrompt from '../prompts/result_formatter.md';
 import sqlValidationPrompt from '../prompts/sql_validation.md';
 import schemaContextPrompt from '../prompts/schema_context.md';
+import diagramGenerationPrompt from '../prompts/diagram_generation.md';
 
 export enum PromptType {
   DATABASE_GENERATION = 'database_generation',
@@ -10,6 +11,7 @@ export enum PromptType {
   RESULT_FORMATTER = 'result_formatter',
   SQL_VALIDATION = 'sql_validation',
   SCHEMA_CONTEXT = 'schema_context',
+  DIAGRAM_GENERATION = 'diagram_generation',
 }
 
 export class PromptService {
@@ -28,6 +30,7 @@ export class PromptService {
     this.cache.set(PromptType.RESULT_FORMATTER, resultFormatterPrompt);
     this.cache.set(PromptType.SQL_VALIDATION, sqlValidationPrompt);
     this.cache.set(PromptType.SCHEMA_CONTEXT, schemaContextPrompt);
+    this.cache.set(PromptType.DIAGRAM_GENERATION, diagramGenerationPrompt);
     console.log('[PromptService] Prompts loaded and cached in memory successfully.');
   }
 
@@ -68,5 +71,9 @@ export class PromptService {
 
   public getSchemaContextPrompt(): string {
     return this.getPrompt(PromptType.SCHEMA_CONTEXT);
+  }
+
+  public getDiagramGenerationPrompt(): string {
+    return this.getPrompt(PromptType.DIAGRAM_GENERATION);
   }
 }

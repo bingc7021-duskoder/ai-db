@@ -357,5 +357,80 @@ export class DatabaseService {
       };
     }
   }
+
+  /**
+   * Ensures the app_schema_diagram table exists in the database.
+   */
+  public async ensureDiagramTableExists(): Promise<void> {
+    const query = `
+      CREATE TABLE IF NOT EXISTS app_schema_diagram (
+        id SERIAL PRIMARY KEY,
+        generated_at TIMESTAMP DEFAULT NOW(),
+        mermaid TEXT NOT NULL,
+        tables JSONB NOT NULL,
+        relationships JSONB NOT NULL,
+        layout_hints JSONB NOT NULL
+      );
+    `;
+    await this.execute(query);
+  }
+
+  /**
+   * Saves or updates the single cached diagram record in the database.
+   */
+  public async saveDiagramData(
+    mermaid: string,
+    tables: any[],
+    relationships: any[],
+    layoutHints: any
+  ): Promise<void> {
+    await this.ensureDiagramTableExists();
+    const query = `
+      INSERT INTO app_schema_diagram (id, generated_at, mermaid, tables, relationships, layout_hints)
+      VALUES (1, NOW(), $1, $2, $3, $4)
+      ON CONFLICT (id) DO UPDATE 
+      SET generated_at = NOW(),
+          mermaid = EXCLUDED.mermaid,
+          tables = EXCLUDED.tables,
+          relationships = EXCLUDED.relationships,
+          layout_hints = EXCLUDED.layout_hints;
+    `;
+    await this.execute(query, [
+      mermaid,
+      JSON.stringify(tables),
+      JSON.stringify(relationships),
+      JSON.stringify(layoutHints)
+    ]);
+  }
+
+  /**
+   * Retrieves the cached diagram record from the database.
+   */
+  public async getCachedDiagramData(): Promise<{
+    generatedAt: string | null;
+    mermaid: string;
+    tables: any[];
+    relationships: any[];
+    layoutHints: any;
+  } | null> {
+    await this.ensureDiagramTableExists();
+    const query = `
+      SELECT generated_at, mermaid, tables, relationships, layout_hints
+      FROM app_schema_diagram
+      WHERE id = 1;
+    `;
+    const result = await this.execute(query);
+    if (result.rowCount === 0 || !result.rows[0]) {
+      return null;
+    }
+    const row = result.rows[0];
+    return {
+      generatedAt: row.generated_at,
+      mermaid: row.mermaid,
+      tables: typeof row.tables === 'string' ? JSON.parse(row.tables) : row.tables,
+      relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships) : row.relationships,
+      layoutHints: typeof row.layout_hints === 'string' ? JSON.parse(row.layout_hints) : row.layout_hints
+    };
+  }
 }
 
