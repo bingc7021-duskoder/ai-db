@@ -6,6 +6,7 @@ import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
 import { PromptService, PromptType } from '../services/PromptService';
 import { GeminiService } from '../services/GeminiService';
+import { SchemaContextService } from '../services/SchemaContextService';
 import { AppContext } from '../types/auth';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/authorization.middleware';
@@ -109,6 +110,7 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
     // Execute schema modification SQL
     console.log(`[LOG] Executing admin SQL on Neon database...`);
     const dbResult = await dbService.execute(sqlQuery);
+    SchemaContextService.invalidateCache();
 
     // Trigger Diagram Metadata generation and caching
     try {
@@ -322,6 +324,8 @@ adminRouter.post('/cleanup', requirePermission('CREATE_SCHEMA'), async (c) => {
       console.log(`[LOG] Cleanup: Executing drop statement: ${dropQuery}`);
       await dbService.execute(dropQuery);
     }
+
+    SchemaContextService.invalidateCache();
 
     const executionTimeMs = parseFloat((performance.now() - startTime).toFixed(2));
     console.log(`[SUCCESS] POST /admin/cleanup - Execution time: ${executionTimeMs}ms`);

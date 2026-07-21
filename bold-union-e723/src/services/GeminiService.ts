@@ -78,4 +78,44 @@ export class GeminiService {
       throw new Error(`Failed to generate content via Gemini LLM: ${error.message || String(error)}`);
     }
   }
+
+  /**
+   * Directly generates content from a pre-assembled, fully grounded prompt string.
+   */
+  public async generateDirect(fullPrompt: string, requestJson: boolean = false): Promise<string> {
+    console.log('[GeminiService] Calling Gemini API with direct grounded context...');
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: fullPrompt }]
+            }],
+            generationConfig: requestJson ? { responseMimeType: 'application/json' } : undefined
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'No response body');
+        console.error(`[GeminiService] HTTP Error from Gemini API: ${response.status} - ${errorBody}`);
+        throw new Error(`Gemini API connection error: status ${response.status}`);
+      }
+
+      const responseData = await response.json() as any;
+      const contentText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!contentText) {
+        throw new Error('Gemini API returned an empty response.');
+      }
+
+      return contentText.trim();
+    } catch (error: any) {
+      console.error('[GeminiService] Exception during direct Gemini API call:', error);
+      throw new Error(`Failed to generate content via Gemini LLM: ${error.message || String(error)}`);
+    }
+  }
 }
