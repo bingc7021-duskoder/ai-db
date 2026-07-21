@@ -8,11 +8,10 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
 }
 
-/**
- * SQL execution request body payload
- */
 export interface SQLRequest {
-  sql: string;
+  sql?: string;
+  prompt?: string;
+  promptId?: string;
 }
 
 /**

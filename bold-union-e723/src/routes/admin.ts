@@ -4,6 +4,8 @@ import { SchemaSQLValidator, DataSQLValidator } from '../services/validator.serv
 import { DatabaseService, DatabaseError } from '../services/database.service';
 import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
+import { PromptService, PromptType } from '../services/PromptService';
+import { GeminiService } from '../services/GeminiService';
 import { AppContext } from '../types/auth';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/authorization.middleware';
@@ -24,24 +26,85 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
   try {
     const body = await c.req.json<SQLRequest>().catch(() => null);
 
-    if (!body || !body.sql) {
-      console.warn(`[VALIDATION ERROR] POST /admin/create-schema - Missing SQL in request body`);
-      return sendError(c, 400, 'Invalid Request: SQL statement is required in request body');
+    if (!body || (!body.sql && !body.prompt)) {
+      console.warn(`[VALIDATION ERROR] POST /admin/create-schema - Missing SQL or prompt in request body`);
+      return sendError(c, 400, 'Invalid Request: SQL statement or prompt is required in request body');
     }
 
-    const sqlQuery = body.sql;
+    const config = getAppConfig(c.env);
+    const dbService = new DatabaseService(config.databaseUrl);
+    let sqlQuery = '';
+
+    if (body.prompt) {
+      console.log(`[LOG] Prompt received for schema generation: ${body.prompt}`);
+      if (!config.geminiApiKey) {
+        return sendError(c, 500, 'Configuration Error: GEMINI_API_KEY is not configured on the backend.');
+      }
+      
+      const promptService = new PromptService();
+      const geminiService = new GeminiService(config.geminiApiKey, promptService);
+
+      const context = `Database Complexity: High\nBusiness Description: AI-Powered Application Database\nTarget Database: PostgreSQL`;
+      const geminiResponse = await geminiService.generate(
+        PromptType.DATABASE_GENERATION,
+        body.prompt,
+        context
+      );
+
+      try {
+        const parsed = JSON.parse(geminiResponse);
+        sqlQuery = parsed.sql || geminiResponse;
+      } catch (err) {
+        sqlQuery = geminiResponse;
+      }
+    } else {
+      sqlQuery = body.sql!;
+    }
+
     console.log(`[LOG] SQL received for admin validation:\n${sqlQuery}`);
 
     // Validate DDL SQL query
-    const validation = SchemaSQLValidator.validate(sqlQuery);
+    let validation = SchemaSQLValidator.validate(sqlQuery);
     if (!validation.isValid) {
-      console.warn(`[VALIDATION ERROR] POST /admin/create-schema - Blocked SQL: ${validation.reason}`);
-      return sendError(c, 400, 'Invalid SQL: Command rejected by validator rules', validation.reason);
-    }
+      if (body.prompt && config.geminiApiKey) {
+        console.log(`[LOG] Schema validation failed. Attempting auto-correction using sql_validation...`);
+        const promptService = new PromptService();
+        const geminiService = new GeminiService(config.geminiApiKey, promptService);
+        
+        const context = `Generated SQL:\n${sqlQuery}\n\nValidation Failure Reason:\n${validation.reason}`;
+        try {
+          const correctionResponse = await geminiService.generate(
+            PromptType.SQL_VALIDATION,
+            'Please correct the generated DDL SQL to make it comply with validation rules.',
+            context
+          );
+          
+          let correctedSql = '';
+          try {
+            const parsed = JSON.parse(correctionResponse);
+            correctedSql = parsed.sql || correctionResponse;
+          } catch (err) {
+            correctedSql = correctionResponse;
+          }
 
-    // Connect to database
-    const config = getAppConfig(c.env);
-    const dbService = new DatabaseService(config.databaseUrl);
+          const reValidation = SchemaSQLValidator.validate(correctedSql);
+          if (reValidation.isValid) {
+            console.log(`[LOG] Auto-correction successful!`);
+            sqlQuery = correctedSql;
+            validation = reValidation;
+          } else {
+            console.warn(`[VALIDATION ERROR] Auto-correction SQL still invalid: ${reValidation.reason}`);
+            return sendError(c, 400, 'Invalid SQL: Auto-correction failed validator rules', reValidation.reason);
+          }
+        } catch (corrErr: any) {
+          console.error(`[LOG] Error during SQL validation auto-correction:`, corrErr);
+          return sendError(c, 400, 'Invalid SQL: Command rejected by validator rules', validation.reason);
+        }
+      } else {
+        console.warn(`[VALIDATION ERROR] POST /admin/create-schema - Blocked SQL: ${validation.reason}`);
+        return sendError(c, 400, 'Invalid SQL: Command rejected by validator rules', validation.reason);
+      }
+    }
 
     // Execute schema modification SQL
     console.log(`[LOG] Executing admin SQL on Neon database...`);

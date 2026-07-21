@@ -36,7 +36,14 @@
 		"GEMINI_API_KEY": "",
 		"GOOGLE_CLIENT_ID": "",
 		"GOOGLE_CLIENT_SECRET": ""
-	}
+	},
+	"rules": [
+		{
+			"type": "Text",
+			"globs": ["**/*.md"],
+			"fallthrough": true
+		}
+	]
 	/**
 	 * Static Assets
 	 * https://developers.cloudflare.com/workers/static-assets/binding/

@@ -100,4 +100,50 @@ export class DatabaseService {
       client.release();
     }
   }
+
+  /**
+   * Fetches schema information for all user tables in the database.
+   */
+  public async getSchemaSummary(): Promise<string> {
+    const query = `
+      SELECT 
+        t.table_name,
+        c.column_name,
+        c.data_type,
+        c.is_nullable
+      FROM 
+        information_schema.tables t
+      JOIN 
+        information_schema.columns c ON t.table_name = c.table_name
+      WHERE 
+        t.table_schema = 'public' 
+        AND t.table_type = 'BASE TABLE'
+      ORDER BY 
+        t.table_name, c.ordinal_position;
+    `;
+    
+    try {
+      const result = await this.execute(query);
+      if (result.rows.length === 0) {
+        return 'No tables found in the database.';
+      }
+      
+      const tablesMap: Record<string, string[]> = {};
+      for (const row of result.rows) {
+        const { table_name, column_name, data_type, is_nullable } = row;
+        if (!tablesMap[table_name]) {
+          tablesMap[table_name] = [];
+        }
+        tablesMap[table_name].push(`${column_name} (${data_type}${is_nullable === 'YES' ? ', nullable' : ''})`);
+      }
+      
+      return Object.entries(tablesMap)
+        .map(([tableName, columns]) => `Table "${tableName}":\n  - ${columns.join('\n  - ')}`)
+        .join('\n\n');
+    } catch (error) {
+      console.error('[DatabaseService] Failed to fetch schema summary:', error);
+      return 'Error retrieving database schema.';
+    }
+  }
 }
+
