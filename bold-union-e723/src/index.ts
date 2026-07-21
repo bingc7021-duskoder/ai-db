@@ -67,7 +67,9 @@ app.get('/schema/diagram', requireAuth, async (c) => {
         mermaid: '',
         tables: [],
         relationships: [],
-        layoutHints: {}
+        layoutHints: {},
+        labels: [],
+        groups: []
       });
     }
     return c.json({
@@ -77,7 +79,9 @@ app.get('/schema/diagram', requireAuth, async (c) => {
       mermaid: cachedDiagram.mermaid,
       tables: cachedDiagram.tables,
       relationships: cachedDiagram.relationships,
-      layoutHints: cachedDiagram.layoutHints
+      layoutHints: cachedDiagram.layoutHints,
+      labels: cachedDiagram.labels,
+      groups: cachedDiagram.groups
     });
   } catch (err: any) {
     console.error('[Schema Diagram Route Error]', err);

@@ -116,7 +116,9 @@ vi.mock('@neondatabase/serverless', () => {
               mermaid: 'erDiagram',
               tables: '[]',
               relationships: '[]',
-              layout_hints: '{}'
+              layout_hints: '{}',
+              labels: '[]',
+              groups: '[]'
             }],
             rowCount: 1
           };
@@ -506,6 +508,8 @@ describe('Worker HTTP Routes Integration Tests', () => {
     expect(body.tables).toBeDefined();
     expect(body.relationships).toBeDefined();
     expect(body.layoutHints).toBeDefined();
+    expect(body.labels).toBeDefined();
+    expect(body.groups).toBeDefined();
   });
 
   it('should block GET /schema/diagram if unauthenticated', async () => {

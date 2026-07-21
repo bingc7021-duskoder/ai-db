@@ -133,7 +133,9 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
               parsed.mermaid || '',
               parsed.tables,
               parsed.relationships,
-              parsed.layoutHints
+              parsed.layoutHints,
+              parsed.labels || [],
+              parsed.groups || []
             );
             console.log(`[SUCCESS] Cached diagram metadata via Gemini.`);
             diagramGenerated = true;
@@ -181,10 +183,22 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
           layoutHints[t.name] = { x: col * 380 + 50, y: row * 320 + 50 };
         });
 
+        const groups = [{
+          id: 'general',
+          name: 'General Schema',
+          tables: tables.map((t: any) => t.name)
+        }];
+
+        const labels = [{
+          text: 'Database System Canvas',
+          x: 50,
+          y: 20
+        }];
+
         const relStrings = relationships.map(r => `  "${r.sourceTable}" }o--|| "${r.targetTable}" : "${r.label}"`);
         const mermaid = `erDiagram\n` + relStrings.join('\n');
 
-        await dbService.saveDiagramData(mermaid, tables, relationships, layoutHints);
+        await dbService.saveDiagramData(mermaid, tables, relationships, layoutHints, labels, groups);
         console.log(`[SUCCESS] Programmatic fallback diagram metadata cached successfully.`);
       }
     } catch (diagErr: any) {

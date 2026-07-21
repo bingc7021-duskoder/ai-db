@@ -31,6 +31,20 @@ The JSON structure MUST follow this schema:
       "label": "string (a human-readable label describing the relationship, e.g. 'places', 'belongs to', 'references')"
     }
   ],
+  "groups": [
+    {
+      "id": "string (unique group ID, e.g. 'auth', 'sales')",
+      "name": "string (logical group/domain name, e.g. 'User Management', 'Billing & Orders')",
+      "tables": ["string (array of table names belonging to this group)"]
+    }
+  ],
+  "labels": [
+    {
+      "text": "string (descriptive annotation label to place on the canvas, e.g. 'Customer Flow', 'Inventory Scope')",
+      "x": "number (X coordinate for the text label)",
+      "y": "number (Y coordinate for the text label)"
+    }
+  ],
   "layoutHints": {
     "<table_name>": {
       "x": "number (suggested X coordinate in pixels for rendering)",
@@ -44,6 +58,7 @@ LAYOUT COORDINATES RULES:
 - Space out the tables cleanly on a two-dimensional grid.
 - Each table card is approximately 320px wide and 250px high.
 - Separate tables horizontally by at least 380px (e.g., column 1 at x: 50, column 2 at x: 450, column 3 at x: 850) and vertically by at least 320px.
+- Place tables belonging to the same group close to each other.
 - Lay out tables logically: main entity tables (like users, accounts) should be placed on the left, transactional/middle tables (orders, transactions) in the middle, and detail tables (order_items, logs) on the right.
 - Ensure all coordinate values are integers.
 

@@ -373,6 +373,10 @@ export class DatabaseService {
       );
     `;
     await this.execute(query);
+    
+    // Dynamically apply column updates if table pre-exists
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS labels JSONB DEFAULT '[]'::jsonb`);
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS groups JSONB DEFAULT '[]'::jsonb`);
   }
 
   /**
@@ -382,24 +386,30 @@ export class DatabaseService {
     mermaid: string,
     tables: any[],
     relationships: any[],
-    layoutHints: any
+    layoutHints: any,
+    labels: any[] = [],
+    groups: any[] = []
   ): Promise<void> {
     await this.ensureDiagramTableExists();
     const query = `
-      INSERT INTO app_schema_diagram (id, generated_at, mermaid, tables, relationships, layout_hints)
-      VALUES (1, NOW(), $1, $2, $3, $4)
+      INSERT INTO app_schema_diagram (id, generated_at, mermaid, tables, relationships, layout_hints, labels, groups)
+      VALUES (1, NOW(), $1, $2, $3, $4, $5, $6)
       ON CONFLICT (id) DO UPDATE 
       SET generated_at = NOW(),
           mermaid = EXCLUDED.mermaid,
           tables = EXCLUDED.tables,
           relationships = EXCLUDED.relationships,
-          layout_hints = EXCLUDED.layout_hints;
+          layout_hints = EXCLUDED.layout_hints,
+          labels = EXCLUDED.labels,
+          groups = EXCLUDED.groups;
     `;
     await this.execute(query, [
       mermaid,
       JSON.stringify(tables),
       JSON.stringify(relationships),
-      JSON.stringify(layoutHints)
+      JSON.stringify(layoutHints),
+      JSON.stringify(labels),
+      JSON.stringify(groups)
     ]);
   }
 
@@ -412,10 +422,12 @@ export class DatabaseService {
     tables: any[];
     relationships: any[];
     layoutHints: any;
+    labels: any[];
+    groups: any[];
   } | null> {
     await this.ensureDiagramTableExists();
     const query = `
-      SELECT generated_at, mermaid, tables, relationships, layout_hints
+      SELECT generated_at, mermaid, tables, relationships, layout_hints, labels, groups
       FROM app_schema_diagram
       WHERE id = 1;
     `;
@@ -429,7 +441,9 @@ export class DatabaseService {
       mermaid: row.mermaid,
       tables: typeof row.tables === 'string' ? JSON.parse(row.tables) : row.tables,
       relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships) : row.relationships,
-      layoutHints: typeof row.layout_hints === 'string' ? JSON.parse(row.layout_hints) : row.layout_hints
+      layoutHints: typeof row.layout_hints === 'string' ? JSON.parse(row.layout_hints) : row.layout_hints,
+      labels: row.labels ? (typeof row.labels === 'string' ? JSON.parse(row.labels) : row.labels) : [],
+      groups: row.groups ? (typeof row.groups === 'string' ? JSON.parse(row.groups) : row.groups) : []
     };
   }
 }
