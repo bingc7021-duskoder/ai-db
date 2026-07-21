@@ -102,10 +102,11 @@ export class DatabaseService {
   }
 
   /**
-   * Fetches schema information for all user tables in the database.
+   * Fetches schema information for all user tables in the database,
+   * including columns, foreign key relationships, indexes, and stored procedures/functions.
    */
   public async getSchemaSummary(): Promise<string> {
-    const query = `
+    const columnsQuery = `
       SELECT 
         t.table_name,
         c.column_name,
@@ -121,25 +122,102 @@ export class DatabaseService {
       ORDER BY 
         t.table_name, c.ordinal_position;
     `;
-    
+
+    const relationsQuery = `
+      SELECT
+        tc.table_name, 
+        kcu.column_name, 
+        ccu.table_name AS foreign_table_name,
+        ccu.column_name AS foreign_column_name 
+      FROM 
+        information_schema.table_constraints AS tc 
+      JOIN 
+        information_schema.key_column_usage AS kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      JOIN 
+        information_schema.constraint_column_usage AS ccu
+        ON ccu.constraint_name = tc.constraint_name
+        AND ccu.table_schema = tc.table_schema
+      WHERE 
+        tc.constraint_type = 'FOREIGN KEY' 
+        AND tc.table_schema = 'public';
+    `;
+
+    const indexesQuery = `
+      SELECT
+        tablename,
+        indexname,
+        indexdef
+      FROM
+        pg_indexes
+      WHERE
+        schemaname = 'public';
+    `;
+
+    const routinesQuery = `
+      SELECT 
+        routine_name,
+        routine_type,
+        data_type
+      FROM 
+        information_schema.routines
+      WHERE 
+        routine_schema = 'public';
+    `;
+
     try {
-      const result = await this.execute(query);
-      if (result.rows.length === 0) {
-        return 'No tables found in the database.';
+      const [columnsResult, relationsResult, indexesResult, routinesResult] = await Promise.all([
+        this.execute(columnsQuery).catch(() => ({ rows: [], rowCount: 0 })),
+        this.execute(relationsQuery).catch(() => ({ rows: [], rowCount: 0 })),
+        this.execute(indexesQuery).catch(() => ({ rows: [], rowCount: 0 })),
+        this.execute(routinesQuery).catch(() => ({ rows: [], rowCount: 0 }))
+      ]);
+
+      if (columnsResult.rows.length === 0) {
+        return 'No user tables found in the database.';
       }
-      
+
+      // Group columns by table
       const tablesMap: Record<string, string[]> = {};
-      for (const row of result.rows) {
+      for (const row of columnsResult.rows) {
         const { table_name, column_name, data_type, is_nullable } = row;
         if (!tablesMap[table_name]) {
           tablesMap[table_name] = [];
         }
         tablesMap[table_name].push(`${column_name} (${data_type}${is_nullable === 'YES' ? ', nullable' : ''})`);
       }
-      
-      return Object.entries(tablesMap)
+
+      let summary = '### TABLES AND COLUMNS\n\n';
+      summary += Object.entries(tablesMap)
         .map(([tableName, columns]) => `Table "${tableName}":\n  - ${columns.join('\n  - ')}`)
         .join('\n\n');
+
+      // Add Relationships
+      if (relationsResult.rows.length > 0) {
+        summary += '\n\n### FOREIGN KEY RELATIONSHIPS\n\n';
+        summary += relationsResult.rows
+          .map(row => `Table "${row.table_name}" (${row.column_name}) references Table "${row.foreign_table_name}" (${row.foreign_column_name})`)
+          .join('\n');
+      }
+
+      // Add Indexes
+      if (indexesResult.rows.length > 0) {
+        summary += '\n\n### INDEXES\n\n';
+        summary += indexesResult.rows
+          .map(row => `Index "${row.indexname}" on Table "${row.tablename}": ${row.indexdef}`)
+          .join('\n');
+      }
+
+      // Add Stored Functions & Procedures
+      if (routinesResult.rows.length > 0) {
+        summary += '\n\n### STORED FUNCTIONS AND PROCEDURES\n\n';
+        summary += routinesResult.rows
+          .map(row => `${row.routine_type.toUpperCase()} "${row.routine_name}" returns ${row.data_type}`)
+          .join('\n');
+      }
+
+      return summary;
     } catch (error) {
       console.error('[DatabaseService] Failed to fetch schema summary:', error);
       return 'Error retrieving database schema.';

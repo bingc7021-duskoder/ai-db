@@ -2,12 +2,14 @@ import databaseGenerationPrompt from '../prompts/database_generation.md';
 import queryGenerationPrompt from '../prompts/query_generation.md';
 import resultFormatterPrompt from '../prompts/result_formatter.md';
 import sqlValidationPrompt from '../prompts/sql_validation.md';
+import schemaContextPrompt from '../prompts/schema_context.md';
 
 export enum PromptType {
   DATABASE_GENERATION = 'database_generation',
   QUERY_GENERATION = 'query_generation',
   RESULT_FORMATTER = 'result_formatter',
   SQL_VALIDATION = 'sql_validation',
+  SCHEMA_CONTEXT = 'schema_context',
 }
 
 export class PromptService {
@@ -25,6 +27,7 @@ export class PromptService {
     this.cache.set(PromptType.QUERY_GENERATION, queryGenerationPrompt);
     this.cache.set(PromptType.RESULT_FORMATTER, resultFormatterPrompt);
     this.cache.set(PromptType.SQL_VALIDATION, sqlValidationPrompt);
+    this.cache.set(PromptType.SCHEMA_CONTEXT, schemaContextPrompt);
     console.log('[PromptService] Prompts loaded and cached in memory successfully.');
   }
 
@@ -61,5 +64,9 @@ export class PromptService {
 
   public getSQLValidationPrompt(): string {
     return this.getPrompt(PromptType.SQL_VALIDATION);
+  }
+
+  public getSchemaContextPrompt(): string {
+    return this.getPrompt(PromptType.SCHEMA_CONTEXT);
   }
 }

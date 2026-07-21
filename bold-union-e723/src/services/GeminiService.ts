@@ -21,7 +21,15 @@ export class GeminiService {
     userRequest: string,
     additionalContext?: string
   ): Promise<string> {
-    const systemPrompt = this.promptService.getPrompt(type);
+    let systemPrompt = this.promptService.getPrompt(type);
+
+    // If generating a query, prepend the schema_context prompt for better accuracy
+    if (type === PromptType.QUERY_GENERATION) {
+      const schemaContext = this.promptService.getPrompt(PromptType.SCHEMA_CONTEXT);
+      if (schemaContext && schemaContext.trim()) {
+        systemPrompt = `${schemaContext}\n\n${systemPrompt}`;
+      }
+    }
 
     // Assemble the payload components
     const contextSection = additionalContext ? `[RUNTIME CONTEXT]\n${additionalContext}\n\n` : '';
