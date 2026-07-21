@@ -6,7 +6,6 @@ import adminRouter from './routes/admin';
 import queryRouter from './routes/query';
 import authRouter from './routes/auth.routes';
 import userRouter from './routes/user.routes';
-import knowledgeRouter from './routes/knowledge.routes';
 import { sendError } from './utils/response';
 import { AppContext } from './types/auth';
 import { requireAuth } from './middleware/auth.middleware';
@@ -35,8 +34,6 @@ app.route('/admin', adminRouter);
 app.route('/query', queryRouter);
 app.route('/auth', authRouter);
 app.route('/users', userRouter);
-app.route('/knowledge', knowledgeRouter);
-
 
 // Schema structure endpoint
 app.get('/schema', requireAuth, async (c) => {
