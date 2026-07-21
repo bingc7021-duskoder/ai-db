@@ -446,6 +446,63 @@ describe('Worker HTTP Routes Integration Tests', () => {
     const body = (await res.json()) as any;
     expect(body.success).toBe(true);
   });
+
+  it('should retrieve database schema structure via GET /schema with USER token', async () => {
+    const res = await app.request(
+      '/schema',
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${userToken}`
+        }
+      },
+      mockEnv
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.success).toBe(true);
+    expect(body.tables).toBeDefined();
+    expect(body.metadata).toBeDefined();
+  });
+
+  it('should block GET /schema if unauthenticated', async () => {
+    const res = await app.request(
+      '/schema',
+      { method: 'GET' },
+      mockEnv
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('should execute cleanup successfully via POST /admin/cleanup with ADMIN token', async () => {
+    const res = await app.request(
+      '/admin/cleanup',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminToken}`
+        }
+      },
+      mockEnv
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.success).toBe(true);
+  });
+
+  it('should block POST /admin/cleanup for USER role (403)', async () => {
+    const res = await app.request(
+      '/admin/cleanup',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${userToken}`
+        }
+      },
+      mockEnv
+    );
+    expect(res.status).toBe(403);
+  });
 });
 
 describe('Authentication and Authorization Flow Integration Tests', () => {

@@ -8,6 +8,9 @@ import authRouter from './routes/auth.routes';
 import userRouter from './routes/user.routes';
 import { sendError } from './utils/response';
 import { AppContext } from './types/auth';
+import { requireAuth } from './middleware/auth.middleware';
+import { DatabaseService } from './services/database.service';
+import { getAppConfig } from './config/env';
 
 const app = new Hono<AppContext>();
 
@@ -31,6 +34,23 @@ app.route('/admin', adminRouter);
 app.route('/query', queryRouter);
 app.route('/auth', authRouter);
 app.route('/users', userRouter);
+
+// Schema structure endpoint
+app.get('/schema', requireAuth, async (c) => {
+  try {
+    const config = getAppConfig(c.env);
+    const dbService = new DatabaseService(config.databaseUrl);
+    const schemaData = await dbService.getSchemaStructure();
+    return c.json({
+      success: true,
+      message: 'Schema retrieved successfully',
+      ...schemaData
+    });
+  } catch (err: any) {
+    console.error('[Schema Route Error]', err);
+    return sendError(c, 500, 'Failed to retrieve database schema', err.message);
+  }
+});
 
 // Health check endpoint
 app.get('/', (c) => {

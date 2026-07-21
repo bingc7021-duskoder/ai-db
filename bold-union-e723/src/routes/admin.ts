@@ -200,4 +200,53 @@ adminRouter.post('/insert-data', requirePermission('INSERT_DATA'), async (c) => 
   }
 });
 
+/**
+ * POST /admin/cleanup
+ * Drops all user tables in the database (excluding system tables like app_users).
+ */
+adminRouter.post('/cleanup', requirePermission('CREATE_SCHEMA'), async (c) => {
+  const startTime = performance.now();
+  console.log(`[API CALL] POST /admin/cleanup - Start`);
+
+  try {
+    const config = getAppConfig(c.env);
+    const dbService = new DatabaseService(config.databaseUrl);
+
+    // Get all user tables except app_users
+    const tablesResult = await dbService.execute(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+        AND table_type = 'BASE TABLE' 
+        AND table_name != 'app_users'
+    `);
+
+    if (tablesResult.rows.length > 0) {
+      const tableNames = tablesResult.rows.map(row => `"${row.table_name}"`).join(', ');
+      const dropQuery = `DROP TABLE IF EXISTS ${tableNames} CASCADE;`;
+      console.log(`[LOG] Cleanup: Executing drop statement: ${dropQuery}`);
+      await dbService.execute(dropQuery);
+    }
+
+    const executionTimeMs = parseFloat((performance.now() - startTime).toFixed(2));
+    console.log(`[SUCCESS] POST /admin/cleanup - Execution time: ${executionTimeMs}ms`);
+
+    return sendSuccess(
+      c,
+      { success: true },
+      'All user tables dropped successfully',
+      executionTimeMs
+    );
+  } catch (error: any) {
+    const executionTimeMs = parseFloat((performance.now() - startTime).toFixed(2));
+    console.error(`[FAILURE] POST /admin/cleanup - Execution time: ${executionTimeMs}ms - Error:`, error);
+    return sendError(
+      c,
+      500,
+      'Failed to cleanup database tables',
+      error.message || String(error)
+    );
+  }
+});
+
 export default adminRouter;
