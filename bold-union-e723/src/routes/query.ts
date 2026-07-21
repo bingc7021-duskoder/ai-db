@@ -4,14 +4,20 @@ import { UserQueryValidator } from '../services/validator.service';
 import { DatabaseService, DatabaseError } from '../services/database.service';
 import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
+import { AppContext } from '../types/auth';
+import { requireAuth } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/authorization.middleware';
 
-const queryRouter = new Hono<{ Bindings: Env }>();
+const queryRouter = new Hono<AppContext>();
+
+// Enforce JWT authentication on all query routes
+queryRouter.use('*', requireAuth);
 
 /**
  * POST /query
  * Receives SELECT SQL statement, validates it is SELECT-only, runs it on Neon PostgreSQL, and returns rows as JSON.
  */
-queryRouter.post('/', async (c) => {
+queryRouter.post('/', requirePermission('QUERY_DATABASE'), async (c) => {
   const startTime = performance.now();
   console.log(`[API CALL] POST /query - Start`);
 

@@ -4,9 +4,12 @@ import { prettyJSON } from 'hono/pretty-json';
 import { Env } from './models/types';
 import adminRouter from './routes/admin';
 import queryRouter from './routes/query';
+import authRouter from './routes/auth.routes';
+import userRouter from './routes/user.routes';
 import { sendError } from './utils/response';
+import { AppContext } from './types/auth';
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppContext>();
 
 // Structured logging and JSON formatting middleware
 app.use('*', logger());
@@ -15,7 +18,7 @@ app.use('*', prettyJSON());
 // CORS configuration (crucial for API backend communicating with frontend app)
 app.use('*', async (c, next) => {
   c.header('Access-Control-Allow-Origin', '*');
-  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PATCH');
   c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (c.req.method === 'OPTIONS') {
     return c.body(null, 204);
@@ -26,6 +29,8 @@ app.use('*', async (c, next) => {
 // Mount modular sub-routers
 app.route('/admin', adminRouter);
 app.route('/query', queryRouter);
+app.route('/auth', authRouter);
+app.route('/users', userRouter);
 
 // Health check endpoint
 app.get('/', (c) => {
