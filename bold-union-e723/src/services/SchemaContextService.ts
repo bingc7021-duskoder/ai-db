@@ -123,7 +123,6 @@ export class SchemaContextService {
         AND t.table_schema = c.table_schema
       WHERE c.table_schema = 'public'
         AND t.table_type = 'BASE TABLE'
-        AND t.table_name NOT IN ('app_users', 'app_generated_files', 'app_schema_diagram')
       ORDER BY c.table_name, c.ordinal_position;
     `;
 
@@ -143,8 +142,7 @@ export class SchemaContextService {
         ON ccu.constraint_name = tc.constraint_name
         AND ccu.table_schema = tc.table_schema
       WHERE tc.constraint_type = 'FOREIGN KEY' 
-        AND tc.table_schema = 'public'
-        AND tc.table_name NOT IN ('app_users', 'app_generated_files', 'app_schema_diagram');
+        AND tc.table_schema = 'public';
     `;
 
     // 3. Indexes Query

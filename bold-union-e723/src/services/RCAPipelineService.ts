@@ -207,7 +207,8 @@ You can inspect column definitions, primary/foreign key constraints, or run a di
     const liveDataKeywords = [
       'how many', 'count', 'top', 'recent', 'maximum', 'minimum', 'average', 'latest',
       'why is', 'slow', 'performance', 'transactions', 'orders', 'users', 'balance',
-      'stats', 'rows', 'data', 'inspect', 'compare', 'records', 'largest', 'select'
+      'stats', 'rows', 'data', 'inspect', 'compare', 'records', 'largest', 'select',
+      'table', 'tables', 'schema', 'list', 'show', 'imp', 'important', 'what are', 'give', 'exist'
     ];
     return liveDataKeywords.some((kw) => q.includes(kw));
   }
