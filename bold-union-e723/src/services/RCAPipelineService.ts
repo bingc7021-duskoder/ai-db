@@ -113,69 +113,79 @@ Respond ONLY with a JSON object: {"sql": "SELECT ...", "explanation": "..."}`;
       }
     }
 
-    // Compile Prompt Context from Markdown Guidebooks
-    const docPrompt = this.promptService.getPrompt(PromptType.DOCUMENTATION);
-    const schemaPrompt = this.promptService.getPrompt(PromptType.SCHEMA_CONTEXT);
-    const backendPrompt = this.promptService.getPrompt(PromptType.BACKEND_PROMPT);
-    const frontendPrompt = this.promptService.getPrompt(PromptType.FRONTEND_PROMPT);
-
-    // Combine Conversation Memory History safely
+    // Build Concise Memory & Context for High Speed (< 1.5s)
     let historyContext = '';
     if (history && Array.isArray(history) && history.length > 0) {
-      historyContext = `Prior Investigation Memory:\n` +
-        history.slice(-6).map((h: any) => {
+      historyContext = `Prior Memory:\n` +
+        history.slice(-3).map((h: any) => {
           const role = String(h?.role || h?.sender || 'USER').toUpperCase();
-          const content = String(h?.content || h?.text || h?.message || '');
+          const content = String(h?.content || h?.text || h?.message || '').slice(0, 150);
           return `${role}: ${content}`;
         }).join('\n') + '\n\n';
     }
 
-    // Build Execution Results Context
-    let sqlResultContext = 'No live SQL query was executed for this step.\n';
+    let sqlResultContext = '';
     if (executedSql) {
-      sqlResultContext = `Executed Live SQL Query: ${executedSql}\nReturned ${queryRowCount} rows:\n` +
-        JSON.stringify(queryRows.slice(0, 10), null, 2) + '\n\n';
+      sqlResultContext = `Live SQL Executed: ${executedSql} (${queryRowCount} rows):\n` +
+        JSON.stringify(queryRows.slice(0, 5)) + '\n\n';
     }
 
-    // Final Prompt for Gemini RCA Synthesis
-    const combinedSystemPrompt = `${docPrompt}\n\n${schemaPrompt}\n\n${backendPrompt}\n\n${frontendPrompt}`;
-    const fullUserPrompt = `${combinedSystemPrompt}
+    // High-Speed Short & Presentable RCA System Prompt
+    const conciseRcaPrompt = `You are a Senior Database RCA Architect. Keep responses SHORT, CRISP, AND HIGHLY PRESENTABLE. Avoid long walls of text.
+
+FORMAT (Strict 4 Short Sections):
+### 1. Findings & Answer
+- 2 to 3 concise, bulleted key findings based directly on live DB data.
+
+### 2. Technical Reasoning
+- 1 to 2 sentence core PostgreSQL technical explanation (indexes, fanout, scan type, row counts).
+
+### 3. Recommended Next Step
+- 1 short, actionable diagnostic recommendation.
+
+### 4. Guided Follow-Up Questions
+- **[Option 1]** Short guided follow-up question
+- **[Option 2]** Short guided follow-up question
+
+RULES:
+- Never ask the developer to run SQL manually.
+- Use clean Markdown, bold metrics, and concise bullet points.`;
+
+    const fullUserPrompt = `${conciseRcaPrompt}
 
 ==========================================================
-LIVE DATABASE CONTEXT
+LIVE DB SCHEMA & DATA
 ==========================================================
-${schemaSummaryString}
+${schemaSummaryString.slice(0, 2500)}
 
-${sqlResultContext}${historyContext}Developer Question: "${userQuestion}"
-
-Synthesize a helpful, patient Senior Database Architect response following the strict 4-part structure (1. Findings & Answer, 2. Technical Reasoning & Underlying Causes, 3. Recommended Next Investigation, 4. Guided Follow-Up Questions).`;
+${sqlResultContext}${historyContext}Developer Question: "${userQuestion}"`;
 
     let rcaAnswer = '';
     try {
-      console.log(`[RCA Pipeline] Sending grounded prompt context (${fullUserPrompt.length} chars) to Gemini...`);
+      console.log(`[RCA Pipeline] Fast-path LLM synthesis (${fullUserPrompt.length} chars)...`);
       const geminiService = new GeminiService(this.geminiApiKey, this.promptService);
       rcaAnswer = await geminiService.generateDirect(fullUserPrompt, false, logger);
     } catch (geminiErr: any) {
-      console.warn(`[RCA Pipeline] Gemini LLM call failed or key invalid (${geminiErr.message}). Fallback to live PostgreSQL schema synthesis...`);
+      console.warn(`[RCA Pipeline] LLM fallback active (${geminiErr.message}). Outputting direct live schema findings...`);
       
       const tableListStr = metadata.tables.length > 0
-        ? metadata.tables.map(t => `- **${t.tableName}** (${t.columns.length} columns, ~${t.estimatedRows} estimated rows)`).join('\n')
-        : 'No custom user tables found in current public schema.';
+        ? metadata.tables.map(t => `- **${t.tableName}** (${t.columns.length} columns, ~${t.estimatedRows} rows)`).join('\n')
+        : 'No user tables found in public schema.';
 
       rcaAnswer = `### 1. Findings & Answer
-Here are the live tables currently present in your PostgreSQL database schema:
+Live PostgreSQL database tables currently present:
 
 ${tableListStr}
 
-### 2. Technical Reasoning & Underlying Causes
-Retrieved directly from live PostgreSQL system catalogs (\`information_schema.columns\` & \`pg_class\`). ${metadata.totalRelationships} foreign key constraint links are defined across these entities.
+### 2. Technical Reasoning
+Discovered directly from PostgreSQL system catalogs (\`information_schema\`). ${metadata.totalRelationships} FK relationships defined.
 
 ### 3. Recommended Next Step
-You can inspect column definitions, primary/foreign key constraints, or run a diagnostic performance scan on any of these tables.
+Inspect column definitions or check row estimates for performance tuning.
 
 ### 4. Guided Follow-Up Questions
-- Would you like me to inspect column details or indexes for one of these tables?
-- Shall we check recent row counts and data growth trends?`;
+- **Inspect Column Details**: Would you like to review indexes and column types?
+- **Scan Growth Trends**: Shall we inspect row distribution and table sizes?`;
     }
 
     const endTime = performance.now();
