@@ -6,6 +6,7 @@ export interface Env {
   GEMINI_API_KEY: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  JWT_SECRET?: string;
 }
 
 export interface SQLRequest {

@@ -5,6 +5,7 @@ export interface AppConfig {
   geminiApiKey: string;
   googleClientId: string;
   googleClientSecret: string;
+  jwtSecret: string;
 }
 
 /**
@@ -16,6 +17,7 @@ export function getAppConfig(env: Env): AppConfig {
   const geminiApiKey = env.GEMINI_API_KEY;
   const googleClientId = env.GOOGLE_CLIENT_ID;
   const googleClientSecret = env.GOOGLE_CLIENT_SECRET;
+  const jwtSecret = env.JWT_SECRET || 'aetherdb-secure-default-jwt-secret-key-2026';
 
   if (!databaseUrl) {
     throw new Error('Configuration error: DATABASE_URL is missing. Please check your wrangler.jsonc or secret configuration.');
@@ -37,5 +39,6 @@ export function getAppConfig(env: Env): AppConfig {
     geminiApiKey: geminiApiKey || '',
     googleClientId: googleClientId || '',
     googleClientSecret: googleClientSecret || '',
+    jwtSecret,
   };
 }

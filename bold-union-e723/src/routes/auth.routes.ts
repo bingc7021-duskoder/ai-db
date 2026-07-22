@@ -22,13 +22,7 @@ authRouter.post('/google', async (c) => {
 
   try {
     const config = getAppConfig(c.env);
-    
-    // Read JWT_SECRET from environment bindings
-    const jwtSecret = c.env.JWT_SECRET;
-    if (!jwtSecret) {
-      console.error('[AuthRouter] Configuration error: JWT_SECRET environment binding is missing');
-      return sendError(c, 500, 'Internal Server Error: Secure environment configuration is missing');
-    }
+    const jwtSecret = config.jwtSecret;
 
     const authService = new AuthService(config.googleClientId, jwtSecret);
     const dbService = new DatabaseService(config.databaseUrl);
