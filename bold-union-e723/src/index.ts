@@ -52,65 +52,53 @@ app.get('/schema', requireAuth, async (c) => {
   }
 });
 
-// Schema diagram cache endpoint
+import { ERPService } from './services/erpService';
+
+// Primary High-Performance ERP Endpoint (Level 1 + Level 2 Cache + Backend Layout Engine)
+app.get('/erp', requireAuth, async (c) => {
+  try {
+    const config = getAppConfig(c.env);
+    const dbService = new DatabaseService(config.databaseUrl);
+    const erpService = new ERPService(dbService, config.geminiApiKey);
+
+    const erpResponse = await erpService.getERP();
+    return c.json(erpResponse);
+  } catch (err: any) {
+    console.error('[ERP Endpoint Error]', err);
+    return sendError(c, 500, 'Failed to retrieve ERP representation', err.message);
+  }
+});
+
+// Backward-Compatible Schema Diagram Alias -> Routes directly to ERP Engine
 app.get('/schema/diagram', requireAuth, async (c) => {
   try {
     const config = getAppConfig(c.env);
     const dbService = new DatabaseService(config.databaseUrl);
-    let cachedDiagram = await dbService.getCachedDiagramData();
-    if (!cachedDiagram || !cachedDiagram.tables || cachedDiagram.tables.length === 0) {
-      const schemaData = await dbService.getSchemaStructure();
-      if (schemaData.tables && schemaData.tables.length > 0) {
-        cachedDiagram = {
-          generatedAt: new Date().toISOString(),
-          mermaid: '',
-          tables: schemaData.tables.map((t: any) => ({
-            name: t.name,
-            label: t.name.charAt(0).toUpperCase() + t.name.slice(1),
-            columns: t.columns
-          })),
-          relationships: schemaData.tables.flatMap((t: any) =>
-            t.columns
-              .filter((c: any) => c.isForeignKey && c.foreignKeyRef)
-              .map((c: any) => ({
-                sourceTable: t.name,
-                sourceColumn: c.name,
-                targetTable: c.foreignKeyRef.table,
-                targetColumn: c.foreignKeyRef.column,
-                label: 'references'
-              }))
-          ),
-          layoutHints: {},
-          labels: [],
-          groups: []
-        };
-      }
-    }
+    const erpService = new ERPService(dbService, config.geminiApiKey);
 
-    if (!cachedDiagram) {
-      return c.json({
-        success: true,
-        message: 'No cached schema diagram found.',
-        generatedAt: null,
-        mermaid: '',
-        tables: [],
-        relationships: [],
-        layoutHints: {},
-        labels: [],
-        groups: []
-      });
-    }
-
+    const erpResponse = await erpService.getERP();
     return c.json({
       success: true,
       message: 'Schema diagram retrieved successfully',
-      generatedAt: cachedDiagram.generatedAt,
-      mermaid: cachedDiagram.mermaid,
-      tables: cachedDiagram.tables,
-      relationships: cachedDiagram.relationships,
-      layoutHints: cachedDiagram.layoutHints,
-      labels: cachedDiagram.labels,
-      groups: cachedDiagram.groups
+      generatedAt: erpResponse.generatedAt,
+      mermaid: '',
+      tables: erpResponse.graph.nodes.map((n) => ({
+        name: n.data.tableName,
+        label: n.data.label,
+        columns: n.data.columns
+      })),
+      relationships: erpResponse.graph.edges.map((e) => ({
+        sourceTable: e.source,
+        sourceColumn: e.id.split('-')[3] || '',
+        targetTable: e.target,
+        targetColumn: '',
+        label: e.label
+      })),
+      layoutHints: {},
+      labels: erpResponse.graph.labels,
+      groups: erpResponse.graph.groups,
+      graph: erpResponse.graph,
+      statistics: erpResponse.statistics
     });
   } catch (err: any) {
     console.error('[Schema Diagram Route Error]', err);

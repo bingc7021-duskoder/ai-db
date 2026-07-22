@@ -352,28 +352,103 @@ export class DatabaseService {
   }
 
   /**
-   * Ensures the app_schema_diagram table exists in the database.
+   * Ensures the app_schema_diagram table exists in the database with schema_hash support.
    */
   public async ensureDiagramTableExists(): Promise<void> {
     const query = `
       CREATE TABLE IF NOT EXISTS app_schema_diagram (
         id SERIAL PRIMARY KEY,
+        schema_hash VARCHAR(64) UNIQUE,
         generated_at TIMESTAMP DEFAULT NOW(),
-        mermaid TEXT NOT NULL,
-        tables JSONB NOT NULL,
-        relationships JSONB NOT NULL,
-        layout_hints JSONB NOT NULL
+        last_used_at TIMESTAMP DEFAULT NOW(),
+        version INTEGER DEFAULT 1,
+        mermaid TEXT DEFAULT '',
+        tables JSONB DEFAULT '[]'::jsonb,
+        relationships JSONB DEFAULT '[]'::jsonb,
+        layout_hints JSONB DEFAULT '{}'::jsonb,
+        labels JSONB DEFAULT '[]'::jsonb,
+        groups JSONB DEFAULT '[]'::jsonb,
+        erp_json JSONB,
+        llm_structure JSONB,
+        metadata_summary TEXT
       );
     `;
     await this.execute(query);
     
     // Dynamically apply column updates if table pre-exists
-    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS labels JSONB DEFAULT '[]'::jsonb`);
-    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS groups JSONB DEFAULT '[]'::jsonb`);
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS schema_hash VARCHAR(64)`).catch(() => {});
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS erp_json JSONB`).catch(() => {});
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS llm_structure JSONB`).catch(() => {});
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS metadata_summary TEXT`).catch(() => {});
+    await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMP DEFAULT NOW()`).catch(() => {});
   }
 
   /**
-   * Saves or updates the single cached diagram record in the database.
+   * Retrieves persistent Level 2 ERP Cache from PostgreSQL by schemaHash.
+   */
+  public async getERPCacheByHash(schemaHash: string): Promise<{
+    schemaHash: string;
+    generatedAt: string;
+    erpJson: any;
+    llmStructure: any;
+    metadataSummary: string;
+  } | null> {
+    await this.ensureDiagramTableExists();
+    const query = `
+      SELECT schema_hash, generated_at, erp_json, llm_structure, metadata_summary
+      FROM app_schema_diagram
+      WHERE schema_hash = $1
+      LIMIT 1;
+    `;
+    const result = await this.execute(query, [schemaHash]);
+    if (result.rowCount === 0 || !result.rows[0] || !result.rows[0].erp_json) {
+      return null;
+    }
+    const row = result.rows[0];
+
+    // Asynchronously update last_used_at timestamp
+    this.execute(`UPDATE app_schema_diagram SET last_used_at = NOW() WHERE schema_hash = $1`, [schemaHash]).catch(() => {});
+
+    return {
+      schemaHash: row.schema_hash,
+      generatedAt: row.generated_at,
+      erpJson: typeof row.erp_json === 'string' ? JSON.parse(row.erp_json) : row.erp_json,
+      llmStructure: row.llm_structure ? (typeof row.llm_structure === 'string' ? JSON.parse(row.llm_structure) : row.llm_structure) : null,
+      metadataSummary: row.metadata_summary || ''
+    };
+  }
+
+  /**
+   * Stores persistent Level 2 ERP Cache in PostgreSQL keyed by schemaHash.
+   */
+  public async saveERPCache(
+    schemaHash: string,
+    erpJson: any,
+    llmStructure: any,
+    metadataSummary: string
+  ): Promise<void> {
+    await this.ensureDiagramTableExists();
+    const query = `
+      INSERT INTO app_schema_diagram (id, schema_hash, generated_at, last_used_at, version, mermaid, tables, relationships, layout_hints, labels, groups, erp_json, llm_structure, metadata_summary)
+      VALUES (1, $1, NOW(), NOW(), 1, '', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, $2, $3, $4)
+      ON CONFLICT (id) DO UPDATE 
+      SET schema_hash = EXCLUDED.schema_hash,
+          generated_at = NOW(),
+          last_used_at = NOW(),
+          erp_json = EXCLUDED.erp_json,
+          llm_structure = EXCLUDED.llm_structure,
+          metadata_summary = EXCLUDED.metadata_summary;
+    `;
+    await this.execute(query, [
+      schemaHash,
+      JSON.stringify(erpJson),
+      JSON.stringify(llmStructure),
+      metadataSummary
+    ]);
+  }
+
+  /**
+   * Backward-compatible saveDiagramData method.
    */
   public async saveDiagramData(
     mermaid: string,
@@ -407,17 +482,9 @@ export class DatabaseService {
   }
 
   /**
-   * Retrieves the cached diagram record from the database.
+   * Backward-compatible getCachedDiagramData method.
    */
-  public async getCachedDiagramData(): Promise<{
-    generatedAt: string | null;
-    mermaid: string;
-    tables: any[];
-    relationships: any[];
-    layoutHints: any;
-    labels: any[];
-    groups: any[];
-  } | null> {
+  public async getCachedDiagramData(): Promise<any> {
     await this.ensureDiagramTableExists();
     const query = `
       SELECT generated_at, mermaid, tables, relationships, layout_hints, labels, groups
@@ -431,10 +498,10 @@ export class DatabaseService {
     const row = result.rows[0];
     return {
       generatedAt: row.generated_at,
-      mermaid: row.mermaid,
-      tables: typeof row.tables === 'string' ? JSON.parse(row.tables) : row.tables,
-      relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships) : row.relationships,
-      layoutHints: typeof row.layout_hints === 'string' ? JSON.parse(row.layout_hints) : row.layout_hints,
+      mermaid: row.mermaid || '',
+      tables: typeof row.tables === 'string' ? JSON.parse(row.tables) : row.tables || [],
+      relationships: typeof row.relationships === 'string' ? JSON.parse(row.relationships) : row.relationships || [],
+      layoutHints: typeof row.layout_hints === 'string' ? JSON.parse(row.layout_hints) : row.layout_hints || {},
       labels: row.labels ? (typeof row.labels === 'string' ? JSON.parse(row.labels) : row.labels) : [],
       groups: row.groups ? (typeof row.groups === 'string' ? JSON.parse(row.groups) : row.groups) : []
     };
