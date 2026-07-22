@@ -149,8 +149,7 @@ export class SchemaContextService {
     const indexesQuery = `
       SELECT tablename, indexname, indexdef
       FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND tablename NOT IN ('app_users', 'app_generated_files', 'app_schema_diagram');
+      WHERE schemaname = 'public';
     `;
 
     // 4. Views Query
@@ -179,8 +178,7 @@ export class SchemaContextService {
     const constraintsQuery = `
       SELECT constraint_name, table_name, constraint_type
       FROM information_schema.table_constraints
-      WHERE table_schema = 'public'
-        AND table_name NOT IN ('app_users', 'app_generated_files', 'app_schema_diagram');
+      WHERE table_schema = 'public';
     `;
 
     // 8. Sequences Query
@@ -202,12 +200,11 @@ export class SchemaContextService {
 
     // 10. Estimated Row Counts
     const rowCountsQuery = `
-      SELECT c.relname AS table_name, COALESCE(c.reltuples, 0) AS estimated_rows
+      SELECT c.relname AS table_name, COALESCE(GREATEST(c.reltuples, 0), 0) AS estimated_rows
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public'
-        AND c.relkind = 'r'
-        AND c.relname NOT IN ('app_users', 'app_generated_files', 'app_schema_diagram');
+        AND c.relkind = 'r';
     `;
 
     try {

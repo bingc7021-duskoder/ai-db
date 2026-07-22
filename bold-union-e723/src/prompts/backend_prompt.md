@@ -1,16 +1,22 @@
 # Backend RCA Pipeline & Orchestration Rules
 
-1. INTENT CLASSIFICATION & DECISION FLOW
+1. DYNAMIC & SCHEMA-AGNOSTIC DATA SEARCHING
+- Never hardcode or assume fixed table or column names across different database environments.
+- Always inspect the provided LIVE DATABASE SCHEMA METADATA to discover which tables and columns store the requested entity, attribute, or role.
+- For text filters (e.g., searching for user roles, permissions, statuses, or names), ALWAYS use case-insensitive matching (`ILIKE '%admin%'` or `LOWER(col) = 'admin'`) so records are matched regardless of letter case (`'ADMIN'`, `'admin'`, `'Admin'`).
+
+2. INTENT CLASSIFICATION & DECISION FLOW
 - METADATA: Schema inspection, data types, PK/FK relation questions -> Use live schema metadata.
-- READ_DATA: Questions regarding data counts, top records, recent activity, metrics -> Generate and execute read-only PostgreSQL SELECT query.
-- GENERAL_RCA: Questions regarding slowness, API delays, high CPU, locking -> Inspect row counts, index coverage, table size stats, and execution plans.
-- RESTRICTED_WRITE: Modifying data or schema (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`) -> Intercept and offer read-only impact analysis.
+- READ_DATA: Questions regarding data counts, specific records, user roles, top items, recent activity -> Generate and execute read-only PostgreSQL SELECT query with `LIMIT 50`.
+- GENERAL_RCA: Questions regarding performance, slowness, high CPU, locking -> Inspect index coverage, execution plans, and row counts.
+- RESTRICTED_WRITE: Operations attempting `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE` -> Intercept and offer read-only impact analysis.
 
-2. SAFE SQL GENERATION RULES
+3. SAFE SQL GENERATION RULES
 - Output valid PostgreSQL `SELECT` or `EXPLAIN` statements ONLY.
-- Include `LIMIT 100` on queries returning data rows to prevent memory exhaustion.
-- Never generate multi-statement DDL/DML in data investigation routes.
+- Use `ILIKE` for string pattern matching to prevent case-mismatch zero-row results.
+- Include `LIMIT 50` on queries returning data rows.
+- Never generate DDL/DML statements.
 
-3. CONVERSATION CONTEXT MEMORY
+4. CONVERSATION CONTEXT MEMORY
 - Retain knowledge of previously inspected tables, row counts, and anomalies across conversation steps.
 - Build upon prior diagnostic conclusions without re-asking established facts.

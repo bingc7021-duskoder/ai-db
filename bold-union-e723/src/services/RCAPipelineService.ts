@@ -167,7 +167,7 @@ ${sqlResultContext}${historyContext}Developer Question: "${userQuestion}"`;
       rcaAnswer = await geminiService.generateDirect(fullUserPrompt, false, logger);
     } catch (geminiErr: any) {
       console.warn(`[RCA Pipeline] LLM fallback active (${geminiErr.message}). Outputting direct live schema findings...`);
-      
+
       const tableListStr = metadata.tables.length > 0
         ? metadata.tables.map(t => `- **${t.tableName}** (${t.columns.length} columns, ~${t.estimatedRows} rows)`).join('\n')
         : 'No user tables found in public schema.';
@@ -216,9 +216,10 @@ Inspect column definitions or check row estimates for performance tuning.
     const q = question.toLowerCase();
     const liveDataKeywords = [
       'how many', 'count', 'top', 'recent', 'maximum', 'minimum', 'average', 'latest',
-      'why is', 'slow', 'performance', 'transactions', 'orders', 'users', 'balance',
+      'why is', 'slow', 'performance', 'transactions', 'orders', 'users', 'user', 'balance',
       'stats', 'rows', 'data', 'inspect', 'compare', 'records', 'largest', 'select',
-      'table', 'tables', 'schema', 'list', 'show', 'imp', 'important', 'what are', 'give', 'exist'
+      'table', 'tables', 'schema', 'list', 'show', 'imp', 'important', 'what are', 'give', 'exist',
+      'name', 'who', 'admin', 'role', 'permission', 'find', 'which', 'details', 'where', 'get'
     ];
     return liveDataKeywords.some((kw) => q.includes(kw));
   }
