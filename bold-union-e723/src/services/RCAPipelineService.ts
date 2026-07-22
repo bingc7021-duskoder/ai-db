@@ -119,11 +119,15 @@ Respond ONLY with a JSON object: {"sql": "SELECT ...", "explanation": "..."}`;
     const backendPrompt = this.promptService.getPrompt(PromptType.BACKEND_PROMPT);
     const frontendPrompt = this.promptService.getPrompt(PromptType.FRONTEND_PROMPT);
 
-    // Combine Conversation Memory History
+    // Combine Conversation Memory History safely
     let historyContext = '';
-    if (history.length > 0) {
+    if (history && Array.isArray(history) && history.length > 0) {
       historyContext = `Prior Investigation Memory:\n` +
-        history.slice(-6).map((h) => `${h.role.toUpperCase()}: ${h.content}`).join('\n') + '\n\n';
+        history.slice(-6).map((h: any) => {
+          const role = String(h?.role || h?.sender || 'USER').toUpperCase();
+          const content = String(h?.content || h?.text || h?.message || '');
+          return `${role}: ${content}`;
+        }).join('\n') + '\n\n';
     }
 
     // Build Execution Results Context
