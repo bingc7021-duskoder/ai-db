@@ -4,7 +4,7 @@ import { PipelineLogger } from '../utils/logger';
 export class GeminiService {
   private apiKey: string;
   private promptService: PromptService;
-  private modelName = 'gemini-1.5-flash';
+  private modelName = 'gemini-flash-latest';
 
   constructor(apiKey: string, promptService: PromptService) {
     if (!apiKey) {
