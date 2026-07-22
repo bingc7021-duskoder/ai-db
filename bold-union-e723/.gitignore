@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+.env
+.env.*
+!.env.example
