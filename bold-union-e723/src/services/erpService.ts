@@ -61,28 +61,91 @@ export class ERPService {
       summary: 'No tables found'
     };
 
-    // Handle Empty Database Schema immediately
-    if (tables.length === 0) {
-      return {
-        success: true,
-        message: 'No active user tables found in database schema',
-        schemaHash: 'empty_schema',
-        cached: false,
-        cacheLevel: 'miss',
-        generatedAt: new Date().toISOString(),
-        layoutVersion: 1,
-        graph: {
-          nodes: [],
-          edges: [],
-          groups: [],
-          labels: []
-        },
-        statistics: metadata
-      };
-    }
+    // Starter Relational Schema for initial environments before custom tables exist
+    const DEFAULT_STARTER_TABLES = [
+      {
+        name: 'PlayoffRound',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'team1Id', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyTeam', column: 'id' } },
+          { name: 'team2Id', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyTeam', column: 'id' } },
+          { name: 'startTime', type: 'TIMESTAMP', isPrimaryKey: false },
+          { name: 'endTime', type: 'TIMESTAMP', isPrimaryKey: false },
+          { name: 'roundNum', type: 'INTEGER', isPrimaryKey: false }
+        ]
+      },
+      {
+        name: 'HockeyGame',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'roundId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'PlayoffRound', column: 'id' } },
+          { name: 'startTime', type: 'TIMESTAMP', isPrimaryKey: false },
+          { name: 'description', type: 'VARCHAR(255)', isPrimaryKey: false },
+          { name: 'team1Id', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyTeam', column: 'id' } },
+          { name: 'team2Id', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyTeam', column: 'id' } }
+        ]
+      },
+      {
+        name: 'GameScores',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'gameId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyGame', column: 'id' } },
+          { name: 'team1Score', type: 'INTEGER', isPrimaryKey: false },
+          { name: 'team2Score', type: 'INTEGER', isPrimaryKey: false }
+        ]
+      },
+      {
+        name: 'HockeyTeam',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'name', type: 'VARCHAR(100)', isPrimaryKey: false },
+          { name: 'logo', type: 'VARCHAR(255)', isPrimaryKey: false }
+        ]
+      },
+      {
+        name: 'HockeyTeamPlayer',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'hockeyTeamId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyTeam', column: 'id' } },
+          { name: 'firstName', type: 'VARCHAR(100)', isPrimaryKey: false },
+          { name: 'lastName', type: 'VARCHAR(100)', isPrimaryKey: false },
+          { name: 'jerseyNum', type: 'INTEGER', isPrimaryKey: false },
+          { name: 'position', type: 'VARCHAR(50)', isPrimaryKey: false }
+        ]
+      },
+      {
+        name: 'User',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'username', type: 'VARCHAR(100)', isPrimaryKey: false },
+          { name: 'email', type: 'VARCHAR(100)', isPrimaryKey: false },
+          { name: 'password', type: 'VARCHAR(255)', isPrimaryKey: false }
+        ]
+      },
+      {
+        name: 'UserScorePicks',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'hockeyGameId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'HockeyGame', column: 'id' } },
+          { name: 'team1Score', type: 'INTEGER', isPrimaryKey: false },
+          { name: 'team2Score', type: 'INTEGER', isPrimaryKey: false },
+          { name: 'userId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'User', column: 'id' } }
+        ]
+      },
+      {
+        name: 'UserStatsPicks',
+        columns: [
+          { name: 'id', type: 'INTEGER', isPrimaryKey: true },
+          { name: 'roundId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'PlayoffRound', column: 'id' } },
+          { name: 'userId', type: 'INTEGER', isForeignKey: true, foreignKeyRef: { table: 'User', column: 'id' } }
+        ]
+      }
+    ];
+
+    const activeTables = tables.length > 0 ? tables : DEFAULT_STARTER_TABLES;
 
     // Step 2: Compute SHA-256 schemaHash
-    const schemaHash = await computeSchemaHash(tables);
+    const schemaHash = await computeSchemaHash(activeTables);
     console.log(`[ERP Pipeline] Schema hash calculated: ${schemaHash}`);
 
     // Step 3: Check Level 1 In-Memory Session Cache (< 10ms)
@@ -147,7 +210,7 @@ export class ERPService {
     }
 
     // Step 6: Backend Layout Engine -> Compute exact grid coordinates and node dimensions
-    const graph = computeBackendGraphLayout(tables, domainStructure);
+    const graph = computeBackendGraphLayout(activeTables, domainStructure);
 
     const resultPayload: ERPResponsePayload = {
       success: true,
