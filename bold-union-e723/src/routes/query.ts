@@ -12,6 +12,8 @@ import { requireAuth } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/authorization.middleware';
 import { PipelineLogger } from '../utils/logger';
 
+import { RCAPipelineService } from '../services/RCAPipelineService';
+
 export interface ChatQueryRequest {
   question?: string;
   prompt?: string;
@@ -129,151 +131,35 @@ queryRouter.post('/', requirePermission('QUERY_DATABASE'), async (c) => {
         return sendError(c, 500, cfgErr.message);
       }
 
-      // Stage 4: Log Database Metadata
-      logger.startTimer('Metadata generation');
-      const metaFetchStart = new Date().toISOString();
-      const metadata = await schemaContextService.getLiveMetadata();
-      const metaFetchCompleted = new Date().toISOString();
-      const metadataFetchTimeMs = logger.endTimer('Metadata generation');
-      snapshotContext.metadataStatus = 'FETCHED_SUCCESS';
-
-      const totalColumns = metadata.tables.reduce((acc, t) => acc + t.columns.length, 0);
-      const totalFunctions = metadata.routines.filter(r => r.routineType === 'FUNCTION').length;
-      const totalProcedures = metadata.routines.filter(r => r.routineType === 'PROCEDURE').length;
-      const schemaSummaryString = schemaContextService.buildSchemaSummaryString(metadata);
-
-      logger.logDatabaseMetadata({
-        fetchStarted: metaFetchStart,
-        fetchCompleted: metaFetchCompleted,
-        executionTimeMs: metadataFetchTimeMs,
-        totalTables: metadata.totalTables,
-        totalColumns,
-        totalForeignKeys: metadata.totalRelationships,
-        totalIndexes: metadata.totalIndexes,
-        totalFunctions,
-        totalProcedures,
-        totalTriggers: metadata.triggers.length,
-        totalViews: metadata.totalViews,
-        rawMetadataObj: metadata,
-        summaryString: schemaSummaryString
-      });
-
-      // Stage 5: Log Final Prompt Preparation
-      logger.startTimer('Prompt generation');
-      const { prompt: fullPrompt, schemaSummary } = await schemaContextService.buildFullPromptContext(
+      const rcaService = new RCAPipelineService(dbService, config.geminiApiKey);
+      const rcaResponse = await rcaService.processRCAQuery({
         userQuestion,
-        conversationHistory
-      );
-      logger.endTimer('Prompt generation');
-      snapshotContext.promptPrepStatus = 'PREPARED_SUCCESS';
-      snapshotContext.fullPromptLength = fullPrompt.length;
-
-      const groundingRules = promptService.getPrompt(PromptType.SCHEMA_CONTEXT);
-
-      logger.logFinalPromptPrep({
-        totalPromptLength: fullPrompt.length,
-        systemPromptLength: groundingRules.length,
-        markdownContextLength: groundingRules.length,
-        schemaSummaryLength: schemaSummary.length,
-        userQuestion,
-        finalCombinedPrompt: fullPrompt
+        conversationHistory,
+        logger
       });
 
-      // Stage 6 & 7: Gemini Request and Response (Handled inside GeminiService)
-      snapshotContext.geminiPayloadStatus = 'POSTING_TO_GEMINI';
-      const geminiService = new GeminiService(config.geminiApiKey, promptService);
-      const geminiAnswer = await geminiService.generateDirect(fullPrompt, false, logger);
-
-      // Stage 8: Response Parsing
-      logger.startTimer('Response parsing');
-      let parsedSql: string | null = null;
-      let parsedExplanation = '';
-      let jsonParsingStatus = 'N/A (Plain Natural Language Response)';
-      const formattingCleanupPerformed: string[] = [];
-
-      try {
-        const jsonMatch = geminiAnswer.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          formattingCleanupPerformed.push('Extracted JSON object using regex match /\\{[\\s\\S]*\\}/');
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.sql && typeof parsed.sql === 'string') {
-            parsedSql = parsed.sql;
-            parsedExplanation = parsed.explanation || '';
-            jsonParsingStatus = 'SUCCESS (Parsed valid JSON with SQL field)';
-          } else {
-            jsonParsingStatus = 'PARTIAL (Parsed JSON, no SQL field found)';
-          }
-        }
-      } catch (err: any) {
-        jsonParsingStatus = `FAILED (${err.message})`;
-      }
-
-      logger.logResponseParsing({
-        rawText: geminiAnswer,
-        parsedText: parsedExplanation || geminiAnswer,
-        jsonParsingStatus,
-        formattingCleanup: formattingCleanupPerformed
-      });
-      logger.endTimer('Response parsing');
-
-      // Execute SQL if present
-      if (parsedSql) {
-        console.log(`[LOG] Parsed executable SQL query: ${parsedSql}`);
-        const validation = UserQueryValidator.validate(parsedSql);
-        if (validation.isValid) {
-          try {
-            const dbResult = await dbService.execute(parsedSql);
-            const chartData = extractChartData(dbResult.rows);
-            const totalExecutionTimeMs = logger.endTimer('Total request');
-
-            const successPayload = {
-              answer: parsedExplanation || geminiAnswer,
-              sql: parsedSql,
-              chartData,
-              rows: dbResult.rows,
-              metadataSummary: `Query executed against active ${metadata.totalTables} tables.`
-            };
-
-            // Stage 9: Log Final API Response
-            const payloadStr = JSON.stringify(successPayload);
-            logger.logFinalApiResponse({
-              responseSize: Buffer.byteLength(payloadStr, 'utf-8'),
-              totalExecutionTimeMs,
-              payloadPreview: successPayload
-            });
-
-            return sendSuccess(
-              c,
-              successPayload,
-              'Schema-grounded query executed successfully',
-              totalExecutionTimeMs
-            );
-          } catch (dbErr: any) {
-            console.warn(`[LOG] Generated SQL execution error, returning grounded explanation:`, dbErr);
-          }
-        }
-      }
-
-      // Return grounded natural language answer
       const totalExecutionTimeMs = logger.endTimer('Total request');
-      const naturalLanguagePayload = {
-        answer: geminiAnswer,
-        sql: parsedSql || undefined,
-        metadataSummary: `Answer grounded in current live PostgreSQL schema (${metadata.totalTables} tables, ${metadata.totalRelationships} FK relations).`
+      const chartData = rcaResponse.rows ? extractChartData(rcaResponse.rows) : [];
+
+      const successPayload = {
+        answer: rcaResponse.answer,
+        sql: rcaResponse.sql,
+        chartData,
+        rows: rcaResponse.rows,
+        rowCount: rcaResponse.rowCount,
+        metadataSummary: rcaResponse.metadataSummary
       };
 
-      // Stage 9: Log Final API Response
-      const payloadStr = JSON.stringify(naturalLanguagePayload);
       logger.logFinalApiResponse({
-        responseSize: Buffer.byteLength(payloadStr, 'utf-8'),
+        responseSize: Buffer.byteLength(JSON.stringify(successPayload), 'utf-8'),
         totalExecutionTimeMs,
-        payloadPreview: naturalLanguagePayload
+        payloadPreview: successPayload
       });
 
       return sendSuccess(
         c,
-        naturalLanguagePayload,
-        'Grounded response generated successfully',
+        successPayload,
+        'RCA Assistant response generated successfully',
         totalExecutionTimeMs
       );
     }

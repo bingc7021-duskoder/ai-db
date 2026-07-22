@@ -4,6 +4,9 @@ import resultFormatterPrompt from '../prompts/result_formatter.md';
 import sqlValidationPrompt from '../prompts/sql_validation.md';
 import schemaContextPrompt from '../prompts/schema_context.md';
 import diagramGenerationPrompt from '../prompts/diagram_generation.md';
+import documentationPrompt from '../prompts/documentation.md';
+import backendPrompt from '../prompts/backend_prompt.md';
+import frontendPrompt from '../prompts/frontend_prompt.md';
 
 export enum PromptType {
   DATABASE_GENERATION = 'database_generation',
@@ -12,6 +15,9 @@ export enum PromptType {
   SQL_VALIDATION = 'sql_validation',
   SCHEMA_CONTEXT = 'schema_context',
   DIAGRAM_GENERATION = 'diagram_generation',
+  DOCUMENTATION = 'documentation',
+  BACKEND_PROMPT = 'backend_prompt',
+  FRONTEND_PROMPT = 'frontend_prompt',
 }
 
 export class PromptService {
@@ -31,6 +37,9 @@ export class PromptService {
     this.cache.set(PromptType.SQL_VALIDATION, sqlValidationPrompt);
     this.cache.set(PromptType.SCHEMA_CONTEXT, schemaContextPrompt);
     this.cache.set(PromptType.DIAGRAM_GENERATION, diagramGenerationPrompt);
+    this.cache.set(PromptType.DOCUMENTATION, documentationPrompt);
+    this.cache.set(PromptType.BACKEND_PROMPT, backendPrompt);
+    this.cache.set(PromptType.FRONTEND_PROMPT, frontendPrompt);
     console.log('[PromptService] Prompts loaded and cached in memory successfully.');
   }
 
@@ -113,5 +122,17 @@ export class PromptService {
 
   public getDiagramGenerationPrompt(): string {
     return this.getPrompt(PromptType.DIAGRAM_GENERATION);
+  }
+
+  public getDocumentationPrompt(): string {
+    return this.getPrompt(PromptType.DOCUMENTATION);
+  }
+
+  public getBackendPrompt(): string {
+    return this.getPrompt(PromptType.BACKEND_PROMPT);
+  }
+
+  public getFrontendPrompt(): string {
+    return this.getPrompt(PromptType.FRONTEND_PROMPT);
   }
 }
