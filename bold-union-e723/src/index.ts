@@ -57,9 +57,37 @@ app.get('/schema/diagram', requireAuth, async (c) => {
   try {
     const config = getAppConfig(c.env);
     const dbService = new DatabaseService(config.databaseUrl);
-    const cachedDiagram = await dbService.getCachedDiagramData();
+    let cachedDiagram = await dbService.getCachedDiagramData();
+    if (!cachedDiagram || !cachedDiagram.tables || cachedDiagram.tables.length === 0) {
+      const schemaData = await dbService.getSchemaStructure();
+      if (schemaData.tables && schemaData.tables.length > 0) {
+        cachedDiagram = {
+          generatedAt: new Date().toISOString(),
+          mermaid: '',
+          tables: schemaData.tables.map((t: any) => ({
+            name: t.name,
+            label: t.name.charAt(0).toUpperCase() + t.name.slice(1),
+            columns: t.columns
+          })),
+          relationships: schemaData.tables.flatMap((t: any) =>
+            t.columns
+              .filter((c: any) => c.isForeignKey && c.foreignKeyRef)
+              .map((c: any) => ({
+                sourceTable: t.name,
+                sourceColumn: c.name,
+                targetTable: c.foreignKeyRef.table,
+                targetColumn: c.foreignKeyRef.column,
+                label: 'references'
+              }))
+          ),
+          layoutHints: {},
+          labels: [],
+          groups: []
+        };
+      }
+    }
+
     if (!cachedDiagram) {
-      // If no cached diagram is found, return empty cached structure rather than failing
       return c.json({
         success: true,
         message: 'No cached schema diagram found.',
@@ -72,6 +100,7 @@ app.get('/schema/diagram', requireAuth, async (c) => {
         groups: []
       });
     }
+
     return c.json({
       success: true,
       message: 'Schema diagram retrieved successfully',

@@ -290,9 +290,9 @@ export class DatabaseService {
 
     try {
       const [columnsResult, relationsResult, statsResult] = await Promise.all([
-        this.execute(columnsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.execute(relationsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.execute(statsQuery).catch(() => ({ rows: [], rowCount: 0 }))
+        this.execute(columnsQuery),
+        this.execute(relationsQuery),
+        this.execute(statsQuery)
       ]);
 
       // Build relations map for fast lookup
@@ -342,19 +342,12 @@ export class DatabaseService {
         tables,
         metadata
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[DatabaseService] Failed to retrieve structured schema:', error);
-      return {
-        tables: [],
-        metadata: {
-          tableCount: 0,
-          relationshipCount: 0,
-          indexCount: 0,
-          viewCount: 0,
-          rowCount: 0,
-          summary: 'Failed to retrieve active database structure.'
-        }
-      };
+      throw new DatabaseError(
+        `Database connection failure: ${error.message || String(error)}. Please verify your DATABASE_URL binding in Cloudflare.`,
+        error
+      );
     }
   }
 
