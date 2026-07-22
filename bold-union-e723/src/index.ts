@@ -14,20 +14,20 @@ import { getAppConfig } from './config/env';
 
 const app = new Hono<AppContext>();
 
-// Structured logging and JSON formatting middleware
+import { cors } from 'hono/cors';
+
+// Structured logging, CORS, and JSON formatting middleware
 app.use('*', logger());
 app.use('*', prettyJSON());
-
-// CORS configuration (crucial for API backend communicating with frontend app)
-app.use('*', async (c, next) => {
-  c.header('Access-Control-Allow-Origin', '*');
-  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PATCH');
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (c.req.method === 'OPTIONS') {
-    return c.body(null, 204);
-  }
-  await next();
-});
+app.use(
+  '*',
+  cors({
+    origin: '*',
+    allowMethods: ['GET', 'POST', 'OPTIONS', 'PATCH', 'PUT', 'DELETE'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400,
+  })
+);
 
 // Mount modular sub-routers
 app.route('/admin', adminRouter);
