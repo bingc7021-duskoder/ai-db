@@ -199,15 +199,13 @@ queryRouter.post('/', requirePermission('QUERY_DATABASE'), async (c) => {
 
     const isDbError = error instanceof DatabaseError;
     const statusCode = isDbError ? 400 : 500;
-    const clientMessage = isDbError
-      ? 'Database operation failed'
-      : 'Internal Server Error or Database failure during query execution';
+    const clientMessage = error.message || (isDbError ? 'Database operation failed' : 'Internal Server Error during query execution');
 
     return sendError(
       c,
       statusCode,
       clientMessage,
-      error.message || String(error)
+      error.stack || String(error)
     );
   }
 });
