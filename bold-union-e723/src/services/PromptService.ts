@@ -53,6 +53,44 @@ export class PromptService {
     this.loadPrompts();
   }
 
+  public getPromptInfo(type: PromptType): {
+    name: string;
+    filePath: string;
+    loaded: boolean;
+    fileSize: number;
+    firstFewLines: string;
+  } {
+    const filePath = `src/prompts/${type}.md`;
+    const content = this.cache.get(type);
+    if (content === undefined || content === null) {
+      return {
+        name: type,
+        filePath,
+        loaded: false,
+        fileSize: 0,
+        firstFewLines: '',
+      };
+    }
+    const lines = content.split('\n').slice(0, 5).join('\n');
+    return {
+      name: type,
+      filePath,
+      loaded: content.length > 0,
+      fileSize: Buffer.byteLength(content, 'utf-8'),
+      firstFewLines: lines,
+    };
+  }
+
+  public getAllPromptsInfo(): Array<{
+    name: string;
+    filePath: string;
+    loaded: boolean;
+    fileSize: number;
+    firstFewLines: string;
+  }> {
+    return Object.values(PromptType).map(type => this.getPromptInfo(type));
+  }
+
   public getDatabaseGenerationPrompt(): string {
     return this.getPrompt(PromptType.DATABASE_GENERATION);
   }
