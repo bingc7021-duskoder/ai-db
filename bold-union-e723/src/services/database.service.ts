@@ -280,6 +280,69 @@ export class DatabaseService {
         AND ccu.table_name != 'app_users';
     `;
 
+    const fallbackTablesQuery = `
+      SELECT
+        n.nspname AS table_schema,
+        c.relname AS table_name
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r'
+        AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND c.relname != 'app_users'
+      ORDER BY n.nspname, c.relname;
+    `;
+
+    const fallbackColumnsQuery = `
+      SELECT
+        n.nspname AS table_schema,
+        c.relname AS table_name,
+        a.attname AS column_name,
+        format_type(a.atttypid, a.atttypmod) AS data_type,
+        a.attnotnull IS FALSE AS is_nullable,
+        EXISTS (
+          SELECT 1
+          FROM pg_index i
+          JOIN pg_attribute ia ON ia.attrelid = i.indrelid AND ia.attnum = ANY(i.indkey)
+          WHERE i.indrelid = c.oid
+            AND i.indisprimary
+            AND ia.attname = a.attname
+        ) AS is_primary_key
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r'
+        AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+        AND c.relname != 'app_users'
+      ORDER BY n.nspname, c.relname, a.attnum;
+    `;
+
+    const fallbackRelationsQuery = `
+      SELECT
+        n1.nspname AS table_schema,
+        c1.relname AS table_name,
+        a1.attname AS column_name,
+        n2.nspname AS foreign_table_schema,
+        c2.relname AS foreign_table_name,
+        a2.attname AS foreign_column_name
+      FROM pg_constraint con
+      JOIN pg_class c1 ON c1.oid = con.conrelid
+      JOIN pg_namespace n1 ON n1.oid = c1.relnamespace
+      JOIN pg_class c2 ON c2.oid = con.confrelid
+      JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+      JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS cols(attnum, ord) ON true
+      JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS confcols(attnum, ord) ON confcols.ord = cols.ord
+      JOIN pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = cols.attnum
+      JOIN pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = confcols.attnum
+      WHERE con.contype = 'f'
+        AND n1.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND n2.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND c1.relname != 'app_users'
+        AND c2.relname != 'app_users'
+      ORDER BY c1.relname, a1.attname;
+    `;
+
     const indexesQuery = `
       SELECT
         schemaname,
@@ -338,9 +401,12 @@ export class DatabaseService {
     `;
 
     try {
-      const [columnsResult, relationsResult, indexesResult, viewsResult, routinesResult, triggersResult, statsResult] = await Promise.all([
+      const [columnsResult, relationsResult, fallbackTablesResult, fallbackColumnsResult, fallbackRelationsResult, indexesResult, viewsResult, routinesResult, triggersResult, statsResult] = await Promise.all([
         this.execute(columnsQuery),
         this.execute(relationsQuery),
+        this.execute(fallbackTablesQuery),
+        this.execute(fallbackColumnsQuery),
+        this.execute(fallbackRelationsQuery),
         this.execute(indexesQuery),
         this.execute(viewsQuery),
         this.execute(routinesQuery),
@@ -348,28 +414,45 @@ export class DatabaseService {
         this.execute(statsQuery)
       ]);
 
+      const effectiveColumnsRows = columnsResult.rows.length > 0 ? columnsResult.rows : fallbackColumnsResult.rows;
+      const effectiveRelationRows = relationsResult.rows.length > 0 ? relationsResult.rows : fallbackRelationsResult.rows;
+
       const relationsMap: Record<string, { table: string; column: string }> = {};
-      for (const rel of relationsResult.rows) {
-        relationsMap[`${rel.table_name}.${rel.column_name}`] = {
-          table: rel.foreign_table_name,
-          column: rel.foreign_column_name
-        };
+      for (const rel of effectiveRelationRows) {
+        const tableName = rel.table_name;
+        const columnName = rel.column_name;
+        const foreignTableName = rel.foreign_table_name || rel.foreign_table_name;
+        const foreignColumnName = rel.foreign_column_name;
+        if (tableName && columnName && foreignTableName && foreignColumnName) {
+          relationsMap[`${tableName}.${columnName}`] = {
+            table: foreignTableName,
+            column: foreignColumnName
+          };
+        }
       }
 
       const tablesMap: Record<string, any[]> = {};
-      for (const row of columnsResult.rows) {
-        const { table_name, column_name, data_type, is_primary_key } = row;
-        if (!tablesMap[table_name]) {
-          tablesMap[table_name] = [];
+      for (const row of effectiveColumnsRows) {
+        const tableName = row.table_name;
+        const columnName = row.column_name;
+        const dataType = row.data_type;
+        const isPrimaryKey = row.is_primary_key ?? row.isPrimaryKey;
+        const isNullable = row.is_nullable;
+        if (!tableName || !columnName) {
+          continue;
+        }
+        if (!tablesMap[tableName]) {
+          tablesMap[tableName] = [];
         }
 
-        const foreignKeyRef = relationsMap[`${table_name}.${column_name}`];
-        tablesMap[table_name].push({
-          name: column_name,
-          type: String(data_type).toUpperCase(),
-          isPrimaryKey: !!is_primary_key,
+        const foreignKeyRef = relationsMap[`${tableName}.${columnName}`];
+        tablesMap[tableName].push({
+          name: columnName,
+          type: String(dataType).toUpperCase(),
+          isPrimaryKey: !!isPrimaryKey,
           isForeignKey: !!foreignKeyRef,
-          foreignKeyRef
+          foreignKeyRef,
+          nullable: isNullable === true || isNullable === 'true' || isNullable === 'YES'
         });
       }
 
@@ -380,12 +463,12 @@ export class DatabaseService {
 
       const stats = statsResult.rows[0] || { table_count: 0, index_count: 0, view_count: 0, row_count: 0 };
       const metadata = {
-        tableCount: Number(stats.table_count),
-        relationshipCount: relationsResult.rows.length,
+        tableCount: Number(stats.table_count) || tables.length,
+        relationshipCount: effectiveRelationRows.length,
         indexCount: Number(stats.index_count),
         viewCount: Number(stats.view_count),
         rowCount: Math.round(Number(stats.row_count)),
-        summary: `Active database schema containing ${stats.table_count} tables, ${relationsResult.rows.length} relationships, ${Number(stats.index_count)} indexes, ${Number(stats.view_count)} views.`
+        summary: `Active database schema containing ${tables.length} tables, ${effectiveRelationRows.length} relationships, ${Number(stats.index_count)} indexes, ${Number(stats.view_count)} views.`
       };
 
       return {
