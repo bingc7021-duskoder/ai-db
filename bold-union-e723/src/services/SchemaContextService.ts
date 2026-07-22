@@ -220,16 +220,16 @@ export class SchemaContextService {
         enumsRes,
         rowCountsRes
       ] = await Promise.all([
-        this.dbService.execute(columnsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(relationsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(indexesQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(viewsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(routinesQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(triggersQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(constraintsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(sequencesQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(enumsQuery).catch(() => ({ rows: [], rowCount: 0 })),
-        this.dbService.execute(rowCountsQuery).catch(() => ({ rows: [], rowCount: 0 }))
+        this.dbService.execute(columnsQuery).catch((e: any) => { console.error('[SchemaContextService] columnsQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(relationsQuery).catch((e: any) => { console.error('[SchemaContextService] relationsQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(indexesQuery).catch((e: any) => { console.error('[SchemaContextService] indexesQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(viewsQuery).catch((e: any) => { console.error('[SchemaContextService] viewsQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(routinesQuery).catch((e: any) => { console.error('[SchemaContextService] routinesQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(triggersQuery).catch((e: any) => { console.error('[SchemaContextService] triggersQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(constraintsQuery).catch((e: any) => { console.error('[SchemaContextService] constraintsQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(sequencesQuery).catch((e: any) => { console.error('[SchemaContextService] sequencesQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(enumsQuery).catch((e: any) => { console.error('[SchemaContextService] enumsQuery failed', e); return { rows: [], rowCount: 0 }; }),
+        this.dbService.execute(rowCountsQuery).catch((e: any) => { console.error('[SchemaContextService] rowCountsQuery failed', e); return { rows: [], rowCount: 0 }; })
       ]);
 
       // Process FK Map

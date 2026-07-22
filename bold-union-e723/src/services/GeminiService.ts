@@ -4,7 +4,7 @@ import { PipelineLogger } from '../utils/logger';
 export class GeminiService {
   private apiKey: string;
   private promptService: PromptService;
-  private modelName = 'gemini-flash-latest';
+  private modelName = 'gemini-1.5-flash';
 
   constructor(apiKey: string, promptService: PromptService) {
     if (!apiKey) {
@@ -52,10 +52,7 @@ export class GeminiService {
     requestJson: boolean = false,
     logger?: PipelineLogger
   ): Promise<string> {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${this.apiKey.substring(0, 8)}...`;
-    const fullEndpointUrl = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelName}:generateContent?key=${this.apiKey}`;
     const generationConfig = requestJson ? { responseMimeType: 'application/json' } : undefined;
-
     const payloadObj = {
       contents: [{
         parts: [{ text: fullPrompt }]
@@ -63,67 +60,62 @@ export class GeminiService {
       generationConfig
     };
     const payloadStr = JSON.stringify(payloadObj);
-    const requestTimestamp = new Date().toISOString();
+    const candidateModels = [this.modelName, 'gemini-1.5-pro', 'gemini-2.0-flash'];
+    let lastError: Error | null = null;
 
-    logger?.logGeminiRequest({
-      modelName: this.modelName,
-      endpoint,
-      requestTimestamp,
-      payloadSize: Buffer.byteLength(payloadStr, 'utf-8'),
-      generationConfig
-    });
+    for (const model of candidateModels) {
+      const fullEndpointUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+      logger?.startTimer(`Gemini API call (${model})`);
+      const geminiCallStartTime = performance.now();
 
-    logger?.startTimer('Gemini API call');
-    const geminiCallStartTime = performance.now();
+      try {
+        const response = await fetch(
+          fullEndpointUrl,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payloadStr
+          }
+        );
 
-    try {
-      const response = await fetch(
-        fullEndpointUrl,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: payloadStr
+        const geminiCallDuration = parseFloat((performance.now() - geminiCallStartTime).toFixed(2));
+        logger?.endTimer(`Gemini API call (${model})`);
+
+        if (!response.ok) {
+          const errorBody = await response.text().catch(() => 'No response body');
+          console.warn(`[GeminiService] HTTP Error from Gemini API (${model}): ${response.status} - ${errorBody}`);
+          lastError = new Error(`Gemini API connection error (${model}): status ${response.status} - ${errorBody}`);
+          continue;
         }
-      );
 
-      const geminiCallDuration = parseFloat((performance.now() - geminiCallStartTime).toFixed(2));
-      logger?.endTimer('Gemini API call');
+        const responseData = await response.json() as any;
+        const candidate = responseData.candidates?.[0];
+        const contentText = candidate?.content?.parts?.[0]?.text;
+        const finishReason = candidate?.finishReason;
+        const tokenUsage = responseData.usageMetadata;
+        const candidateCount = responseData.candidates?.length || 0;
 
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => 'No response body');
-        console.error(`[GeminiService] HTTP Error from Gemini API: ${response.status} - ${errorBody}`);
-        const httpErr = new Error(`Gemini API connection error: status ${response.status} - ${errorBody}`);
-        logger?.logError(httpErr, { httpStatus: response.status, errorBody });
-        throw httpErr;
+        logger?.logGeminiResponse({
+          responseTimeMs: geminiCallDuration,
+          tokenUsage,
+          finishReason,
+          candidateCount,
+          rawGeminiResponse: responseData,
+          rawText: contentText || ''
+        });
+
+        if (!contentText) {
+          lastError = new Error(`Gemini API (${model}) returned an empty response or missing text part.`);
+          continue;
+        }
+
+        return contentText.trim();
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[GeminiService] Exception calling ${model}:`, err.message);
       }
-
-      const responseData = await response.json() as any;
-      const candidate = responseData.candidates?.[0];
-      const contentText = candidate?.content?.parts?.[0]?.text;
-      const finishReason = candidate?.finishReason;
-      const tokenUsage = responseData.usageMetadata;
-      const candidateCount = responseData.candidates?.length || 0;
-
-      logger?.logGeminiResponse({
-        responseTimeMs: geminiCallDuration,
-        tokenUsage,
-        finishReason,
-        candidateCount,
-        rawGeminiResponse: responseData,
-        rawText: contentText || ''
-      });
-
-      if (!contentText) {
-        const emptyErr = new Error('Gemini API returned an empty response or missing text part.');
-        logger?.logError(emptyErr, { responseData });
-        throw emptyErr;
-      }
-
-      return contentText.trim();
-    } catch (error: any) {
-      console.error('[GeminiService] Exception during Gemini API call:', error);
-      logger?.logError(error, { fullPromptLength: fullPrompt.length });
-      throw new Error(`Failed to generate content via Gemini LLM: ${error.message || String(error)}`);
     }
+
+    throw lastError || new Error('Failed to generate content via Gemini LLM across all candidate models.');
   }
 }
