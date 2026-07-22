@@ -269,6 +269,15 @@ ${sqlResultContext}${historyContext}Developer Question: "${userQuestion}"`;
         }).join('\n');
 
         findings += `Detailed breakdown for table **\`${tName}\`** (${cols.length} columns, ~${matchedTableObj.estimatedRows || 0} rows):\n\n${colSummary}\n`;
+      } else if (/\b(max|most|largest|highest|biggest|top)\b/.test(qLower) && /\b(row|rows|record|records|table|tables)\b/.test(qLower)) {
+        const sortedTables = [...(metadata.tables || [])].sort((a, b) => (Number(b.estimatedRows || 0) - Number(a.estimatedRows || 0)));
+        const topTable = sortedTables[0];
+        if (topTable) {
+          findings += `The table with the **maximum rows** in the database is **\`${topTable.tableName}\`** (~${topTable.estimatedRows || 0} rows).\n\nTop tables by row estimate:\n` +
+            sortedTables.slice(0, 5).map(t => `- **\`${t.tableName}\`**: ~${t.estimatedRows || 0} rows`).join('\n') + '\n';
+        } else {
+          findings += `No user tables found in database schema.\n`;
+        }
       } else {
         const tableListStr = (metadata.tables && metadata.tables.length > 0)
           ? metadata.tables.map((t: any) => {
@@ -324,6 +333,9 @@ ${sqlResultContext}${historyContext}Developer Question: "${userQuestion}"`;
     });
 
     if (!matchedTable) {
+      if (/\b(max|most|largest|highest|biggest|top)\b/.test(qLower) && /\b(row|rows|record|records|table|tables)\b/.test(qLower)) {
+        return `SELECT relname AS table_name, n_live_tup AS row_count FROM pg_stat_user_tables ORDER BY n_live_tup DESC`;
+      }
       return null;
     }
 
