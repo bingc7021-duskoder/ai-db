@@ -31,16 +31,12 @@
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/
 	 */
-	"vars": {
-		"DATABASE_URL": "",
-		"GEMINI_API_KEY": "",
-		"GOOGLE_CLIENT_ID": "",
-		"GOOGLE_CLIENT_SECRET": ""
-	},
 	"rules": [
 		{
 			"type": "Text",
-			"globs": ["**/*.md"],
+			"globs": [
+				"**/*.md"
+			],
 			"fallthrough": true
 		}
 	]
