@@ -227,7 +227,7 @@ export class DatabaseService {
   /**
    * Returns structured schema information for the frontend (tables, columns, foreign keys, metadata).
    */
-  public async getSchemaStructure(): Promise<{ tables: any[]; metadata: any }> {
+  public async getSchemaStructure(): Promise<{ tables: any[]; metadata: any; indexes: any[]; views: any[]; routines: any[]; triggers: any[] }> {
     const columnsQuery = `
       SELECT 
         c.table_name,
@@ -280,6 +280,55 @@ export class DatabaseService {
         AND ccu.table_name != 'app_users';
     `;
 
+    const indexesQuery = `
+      SELECT
+        schemaname,
+        tablename,
+        indexname,
+        indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename != 'app_users'
+      ORDER BY tablename, indexname;
+    `;
+
+    const viewsQuery = `
+      SELECT
+        schemaname,
+        viewname AS name,
+        definition
+      FROM pg_views
+      WHERE schemaname = 'public' AND viewname != 'app_users'
+      ORDER BY viewname;
+    `;
+
+    const routinesQuery = `
+      SELECT
+        n.nspname,
+        p.proname AS name,
+        CASE p.prokind
+          WHEN 'f' THEN 'FUNCTION'
+          WHEN 'p' THEN 'PROCEDURE'
+          ELSE 'ROUTINE'
+        END AS type,
+        pg_get_functiondef(p.oid) AS definition
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname != 'app_users'
+      ORDER BY p.proname;
+    `;
+
+    const triggersQuery = `
+      SELECT
+        t.tgname AS name,
+        c.relname AS table_name,
+        pg_get_triggerdef(t.oid) AS definition
+      FROM pg_trigger t
+      JOIN pg_class c ON c.oid = t.tgrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND NOT t.tgisinternal
+      ORDER BY c.relname, t.tgname;
+    `;
+
     const statsQuery = `
       SELECT
         (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name != 'app_users') AS table_count,
@@ -289,14 +338,16 @@ export class DatabaseService {
     `;
 
     try {
-      const [columnsResult, relationsResult, statsResult] = await Promise.all([
+      const [columnsResult, relationsResult, indexesResult, viewsResult, routinesResult, triggersResult, statsResult] = await Promise.all([
         this.execute(columnsQuery),
         this.execute(relationsQuery),
+        this.execute(indexesQuery),
+        this.execute(viewsQuery),
+        this.execute(routinesQuery),
+        this.execute(triggersQuery),
         this.execute(statsQuery)
       ]);
 
-      // Build relations map for fast lookup
-      // Key: table_name.column_name
       const relationsMap: Record<string, { table: string; column: string }> = {};
       for (const rel of relationsResult.rows) {
         relationsMap[`${rel.table_name}.${rel.column_name}`] = {
@@ -305,14 +356,13 @@ export class DatabaseService {
         };
       }
 
-      // Group columns by table name
       const tablesMap: Record<string, any[]> = {};
       for (const row of columnsResult.rows) {
         const { table_name, column_name, data_type, is_primary_key } = row;
         if (!tablesMap[table_name]) {
           tablesMap[table_name] = [];
         }
-        
+
         const foreignKeyRef = relationsMap[`${table_name}.${column_name}`];
         tablesMap[table_name].push({
           name: column_name,
@@ -335,12 +385,31 @@ export class DatabaseService {
         indexCount: Number(stats.index_count),
         viewCount: Number(stats.view_count),
         rowCount: Math.round(Number(stats.row_count)),
-        summary: `Active database schema containing ${stats.table_count} tables and ${relationsResult.rows.length} relationships.`
+        summary: `Active database schema containing ${stats.table_count} tables, ${relationsResult.rows.length} relationships, ${Number(stats.index_count)} indexes, ${Number(stats.view_count)} views.`
       };
 
       return {
         tables,
-        metadata
+        metadata,
+        indexes: (indexesResult.rows || []).map((row: any) => ({
+          name: row.indexname,
+          table: row.tablename,
+          definition: row.indexdef
+        })),
+        views: (viewsResult.rows || []).map((row: any) => ({
+          name: row.name,
+          definition: row.definition
+        })),
+        routines: (routinesResult.rows || []).map((row: any) => ({
+          name: row.name,
+          type: row.type,
+          definition: row.definition
+        })),
+        triggers: (triggersResult.rows || []).map((row: any) => ({
+          name: row.name,
+          table: row.table_name,
+          definition: row.definition
+        }))
       };
     } catch (error: any) {
       console.error('[DatabaseService] Failed to retrieve structured schema:', error);
@@ -374,13 +443,13 @@ export class DatabaseService {
       );
     `;
     await this.execute(query);
-    
-    // Dynamically apply column updates if table pre-exists
+
     await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS schema_hash VARCHAR(64)`).catch(() => {});
     await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS erp_json JSONB`).catch(() => {});
     await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS llm_structure JSONB`).catch(() => {});
     await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS metadata_summary TEXT`).catch(() => {});
     await this.execute(`ALTER TABLE app_schema_diagram ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMP DEFAULT NOW()`).catch(() => {});
+    await this.execute(`CREATE UNIQUE INDEX IF NOT EXISTS app_schema_diagram_schema_hash_idx ON app_schema_diagram (schema_hash) WHERE schema_hash IS NOT NULL`).catch(() => {});
   }
 
   /**
@@ -429,11 +498,10 @@ export class DatabaseService {
   ): Promise<void> {
     await this.ensureDiagramTableExists();
     const query = `
-      INSERT INTO app_schema_diagram (id, schema_hash, generated_at, last_used_at, version, mermaid, tables, relationships, layout_hints, labels, groups, erp_json, llm_structure, metadata_summary)
-      VALUES (1, $1, NOW(), NOW(), 1, '', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, $2, $3, $4)
-      ON CONFLICT (id) DO UPDATE 
-      SET schema_hash = EXCLUDED.schema_hash,
-          generated_at = NOW(),
+      INSERT INTO app_schema_diagram (schema_hash, generated_at, last_used_at, version, mermaid, tables, relationships, layout_hints, labels, groups, erp_json, llm_structure, metadata_summary)
+      VALUES ($1, NOW(), NOW(), 1, '', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, $2, $3, $4)
+      ON CONFLICT (schema_hash) DO UPDATE
+      SET generated_at = NOW(),
           last_used_at = NOW(),
           erp_json = EXCLUDED.erp_json,
           llm_structure = EXCLUDED.llm_structure,

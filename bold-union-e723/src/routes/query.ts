@@ -189,7 +189,7 @@ queryRouter.post('/', requirePermission('QUERY_DATABASE'), async (c) => {
 
     return sendSuccess(
       c,
-      directSqlPayload,
+      dbResult.rows,
       'Query executed successfully',
       totalExecutionTimeMs
     );

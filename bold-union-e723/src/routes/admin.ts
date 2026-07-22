@@ -6,6 +6,7 @@ import { getAppConfig } from '../config/env';
 import { sendSuccess, sendError } from '../utils/response';
 import { PromptService, PromptType } from '../services/PromptService';
 import { GeminiService } from '../services/GeminiService';
+import { ERPService } from '../services/erpService';
 import { SchemaContextService } from '../services/SchemaContextService';
 import { AppContext } from '../types/auth';
 import { requireAuth } from '../middleware/auth.middleware';
@@ -111,6 +112,7 @@ adminRouter.post('/create-schema', requirePermission('CREATE_SCHEMA'), async (c)
     console.log(`[LOG] Executing admin SQL on Neon database...`);
     const dbResult = await dbService.execute(sqlQuery);
     SchemaContextService.invalidateCache();
+    ERPService.clearMemoryCache();
 
     // Trigger Diagram Metadata generation and caching
     try {

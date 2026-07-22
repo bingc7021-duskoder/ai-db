@@ -46,10 +46,17 @@ export class ERPService {
    * Step 7: Store in Level 2 & Level 1 Cache
    * Step 8: Return Ready-To-Render Graph JSON
    */
+  public static clearMemoryCache(): void {
+    ERPService.memoryCache.clear();
+    console.log('[ERP Pipeline] Cleared ERP in-memory cache');
+  }
+
   public async getERP(): Promise<ERPResponsePayload> {
     const overallStartTime = performance.now();
 
-    // Step 1: Discover live PostgreSQL schema structure
+    console.log('[ERP Pipeline] Starting ERP generation pipeline');
+
+    const schemaStartTime = performance.now();
     const schemaData = await this.dbService.getSchemaStructure();
     const tables = schemaData.tables || [];
     const metadata = schemaData.metadata || {
@@ -60,8 +67,21 @@ export class ERPService {
       rowCount: 0,
       summary: 'No tables found'
     };
+    const schemaSnapshot = {
+      tables,
+      indexes: schemaData.indexes || [],
+      views: schemaData.views || [],
+      routines: schemaData.routines || [],
+      triggers: schemaData.triggers || [],
+      metadata
+    };
+    console.log(`[ERP Pipeline] Metadata fetch completed in ${(performance.now() - schemaStartTime).toFixed(2)} ms`, {
+      tableCount: tables.length,
+      relationshipCount: metadata.relationshipCount,
+      indexCount: metadata.indexCount,
+      viewCount: metadata.viewCount
+    });
 
-    // Handle empty database schema strictly
     if (tables.length === 0) {
       return {
         success: true,
@@ -81,8 +101,7 @@ export class ERPService {
       };
     }
 
-    // Step 2: Compute SHA-256 schemaHash
-    const schemaHash = await computeSchemaHash(tables);
+    const schemaHash = await computeSchemaHash(schemaSnapshot);
     console.log(`[ERP Pipeline] Schema hash calculated: ${schemaHash}`);
 
     // Step 3: Check Level 1 In-Memory Session Cache (< 10ms)
@@ -122,8 +141,7 @@ export class ERPService {
       console.warn('[ERP Pipeline] Level 2 Cache lookup warning:', cacheErr);
     }
 
-    // Step 5: Cache Miss -> Call Gemini AI Database Architect to generate Domain Architecture
-    console.log(`[ERP Pipeline] Cache MISS for hash ${schemaHash}. Initiating Gemini AI Architectural Domain Grouping...`);
+    console.log(`[ERP Pipeline] Cache MISS for hash ${schemaHash}. Initiating Gemini AI architectural planning...`);
     let domainStructure: any = { domains: [], tableMetadata: {}, annotations: [] };
 
     if (this.geminiApiKey) {
@@ -132,22 +150,24 @@ export class ERPService {
         const geminiService = new GeminiService(this.geminiApiKey, promptService);
         const schemaSummary = await this.dbService.getSchemaSummary();
 
+        console.log('[ERP Pipeline] Sending schema snapshot to Gemini for architectural planning');
         const llmResponse = await geminiService.generate(
           PromptType.DIAGRAM_GENERATION,
-          `Analyze the following database schema and produce logical business domain groupings:`,
+          `Analyze the following database schema and produce logical business domain groupings and layout strategy hints:`,
           schemaSummary
         );
 
         const cleanJsonText = llmResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
         domainStructure = JSON.parse(cleanJsonText);
-        console.log('[ERP Pipeline] Gemini AI domain architect response parsed successfully.');
+        console.log('[ERP Pipeline] Gemini architectural planning response parsed successfully');
       } catch (geminiErr: any) {
-        console.warn('[ERP Pipeline] Gemini domain grouping fallback:', geminiErr.message);
+        console.warn('[ERP Pipeline] Gemini planning fallback:', geminiErr.message);
       }
     }
 
-    // Step 6: Backend Layout Engine -> Compute exact grid coordinates and node dimensions from live PostgreSQL tables
+    const layoutStartTime = performance.now();
     const graph = computeBackendGraphLayout(tables, domainStructure);
+    console.log(`[ERP Pipeline] Layout generation completed in ${(performance.now() - layoutStartTime).toFixed(2)} ms`);
 
     const resultPayload: ERPResponsePayload = {
       success: true,
@@ -161,13 +181,13 @@ export class ERPService {
       statistics: metadata
     };
 
-    // Step 7: Store in Level 1 (Memory) and Level 2 (PostgreSQL) Cache
     ERPService.memoryCache.set(schemaHash, resultPayload);
     this.dbService
       .saveERPCache(schemaHash, resultPayload, domainStructure, metadata.summary)
       .catch((saveErr) => console.warn('[ERP Pipeline] Level 2 Cache save warning:', saveErr));
 
-    console.log(`[ERP Pipeline] Complete generation & caching finished in ${(performance.now() - overallStartTime).toFixed(2)} ms`);
+    const responseSize = JSON.stringify(resultPayload).length;
+    console.log(`[ERP Pipeline] Complete generation & caching finished in ${(performance.now() - overallStartTime).toFixed(2)} ms with response size ${responseSize} bytes`);
 
     return resultPayload;
   }
